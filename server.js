@@ -110,8 +110,14 @@ async function start() {
   const MAX_INCOMING_BITRATE = parseInt(process.env.MAX_INCOMING_BITRATE || "800000", 10);
   const INITIAL_AVAILABLE_BITRATE = parseInt(process.env.INITIAL_AVAILABLE_BITRATE || "1000000", 10);
 
-  // Config: 8 rooms named room1..room8
-  const ROOMS = Array.from({ length: 8 }, (_, i) => `room${i + 1}`);
+  // Config: 8 rooms with custom names for the first three and defaults for the rest
+  const DEFAULT_ROOMS = Array.from({ length: 5 }, (_, i) => `room${i + 4}`);
+  const ROOMS = [
+    "Video Production",
+    "media",
+    "bashkepunetoret",
+    ...DEFAULT_ROOMS,
+  ];
 
   // Serve a vendor copy of mediasoup-client if available
   // Try common locations and expose the first existing file at /vendor/mediasoup-client.js
@@ -165,8 +171,10 @@ async function start() {
 
     // Accept room and admin directly from handshake query (no tokens)
     const qs = socket.handshake.query || {};
-    const room = Array.isArray(qs.room) ? qs.room[0] : qs.room;
+    const rawRoom = Array.isArray(qs.room) ? qs.room[0] : qs.room;
     const adminFlag = qs.admin === "1" || qs.admin === "true";
+    const room = typeof rawRoom === "string" ? rawRoom.trim() : "";
+
     let displayName = Array.isArray(qs.name) ? qs.name[0] : qs.name;
     displayName = typeof displayName === "string" ? displayName.trim() : "";
     if (displayName) {
@@ -390,21 +398,27 @@ async function start() {
       }
     });
 
-    socket.on("disconnect", () => {
-      // cleanup this peer's transports/producers/consumers
+    const cleanupPeer = () => {
+      if (socket.data.__cleaned) {
+        return;
+      }
+      socket.data.__cleaned = true;
+
+      const joinedRoom = socket.data.room;
+
       for (const [roomId, roomObj] of Object.entries(rooms)) {
         const peer = roomObj.peers[socket.id];
         if (!peer) continue;
 
-        // close producers
         if (peer.producer) {
           try {
             peer.producer.close();
           } catch (e) {}
-          socket.to(roomId).emit("producer-closed", { producerId: peer.producerId });
+          socket
+            .to(roomId)
+            .emit("producer-closed", { producerId: peer.producerId });
         }
 
-        // close consumers
         if (peer.consumers) {
           for (const c of Object.values(peer.consumers)) {
             try {
@@ -413,7 +427,6 @@ async function start() {
           }
         }
 
-        // close transports
         if (peer.transports) {
           for (const t of Object.values(peer.transports)) {
             try {
@@ -424,11 +437,25 @@ async function start() {
 
         delete roomObj.peers[socket.id];
         console.log(`Peer ${socket.id} left room ${roomId}`);
+
+        if (Object.keys(roomObj.peers).length === 0) {
+          delete rooms[roomId];
+        }
       }
-      socket
-        .to(room)
-        .emit("peer-left", { id: socket.id, name: socket.data.displayName });
-    });
+
+      if (joinedRoom) {
+        socket.to(joinedRoom).emit("peer-left", {
+          id: socket.id,
+          name: socket.data.displayName,
+        });
+        try {
+          socket.leave(joinedRoom);
+        } catch (e) {}
+      }
+    };
+
+    socket.on("disconnecting", cleanupPeer);
+    socket.on("disconnect", cleanupPeer);
   });
 
   server.listen(PORT, () => {
