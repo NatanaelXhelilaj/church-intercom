@@ -4,6 +4,16 @@ Setup:
 3. npm start
 4. Open http://localhost:3000
 
+HTTPS:
+- Browsers require HTTPS (or localhost) for microphone access. To serve this app over HTTPS, set the following environment variables before running `npm start`:
+  - `HTTPS=true`
+  - `SSL_KEY_PATH=/absolute/path/to/your/server.key`
+  - `SSL_CERT_PATH=/absolute/path/to/your/server.crt`
+- Optionally set `SSL_CA_PATH` if your certificate chain requires it.
+- You can generate a self-signed certificate for local use with a command such as:
+  - `openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.crt -days 365`
+  - Then point `SSL_KEY_PATH` and `SSL_CERT_PATH` at the generated files.
+
 Usage:
 - Use /generate?room=room1 to get a token (JSON).
 - Use /qr?room=room1 to get a QR PNG that encodes a join URL with token.
