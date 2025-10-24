@@ -41,7 +41,7 @@
     const token = paramsLocal.get('token');
     const room = paramsLocal.get('room');
     if (!token || !room) {
-      alert('Open the page with ?room=room1&token=... (scan QR or paste URL)');
+      alert('Open the page with ?room=Video%20Production&token=... (scan QR or paste URL)');
       return;
     }
     await start(token, room);

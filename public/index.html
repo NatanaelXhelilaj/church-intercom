@@ -539,7 +539,21 @@
       }
     }
 
-    const ROOMS = ['room1','room2','room3','room4','room5','room6','room7','room8'];
+    const ROOMS = [
+      'Video Production',
+      'media',
+      'bashkepunetoret',
+      'room4',
+      'room5',
+      'room6',
+      'room7',
+      'room8',
+    ];
+    const ROOM_LABELS = new Map([
+      ['Video Production', 'Video Production'],
+      ['media', 'media'],
+      ['bashkepunetoret', 'bashkepunetoret'],
+    ]);
     const roomsDiv = document.getElementById('rooms');
     const statusEl = document.getElementById('status');
     const leaveBtn = document.getElementById('leave');
@@ -551,10 +565,21 @@
     const nameInput = document.getElementById('displayName');
     const localNameEl = document.getElementById('localName');
 
+    function roomLabel(roomId) {
+      if (ROOM_LABELS.has(roomId)) {
+        return ROOM_LABELS.get(roomId);
+      }
+      const match = roomId && roomId.match(/^room(\d+)$/i);
+      if (match) {
+        return `Room ${match[1]}`;
+      }
+      return roomId || 'Room';
+    }
+
     for (const r of ROOMS) {
       const btn = document.createElement('button');
       btn.type = 'button';
-      const prettyRoom = r.replace(/room(\d+)/i, 'Room $1');
+      const prettyRoom = roomLabel(r);
       btn.textContent = `Join ${prettyRoom}`;
       btn.setAttribute('aria-label', `Join ${prettyRoom}`);
       btn.onclick = () => joinRoom(r);
@@ -681,6 +706,14 @@
       stopPushToTalk();
     });
 
+    function handlePageExit() {
+      if (!socket) return;
+      cleanup(true);
+    }
+
+    window.addEventListener('pagehide', handlePageExit);
+    window.addEventListener('beforeunload', handlePageExit);
+
     function applyLocalTrackState() {
       if (!localStream) return;
       const tracks = localStream.getAudioTracks();
@@ -747,7 +780,7 @@
       localNameEl.textContent = displayName;
       joiningRoom = true;
       setRoomButtonsDisabled(true);
-      log('Connecting to room ' + room);
+      log('Connecting to room ' + roomLabel(room));
 
       try {
         const DeviceClass = await loadDeviceModule();
@@ -901,7 +934,7 @@
       leaveBtn.disabled = false;
       localNameEl.textContent = displayName ? `${displayName} · connected` : 'Connected';
       joiningRoom = false;
-      log('Joined ' + room);
+      log('Joined ' + roomLabel(room));
       refreshPeerCards();
       updateMicStatus();
     }
