@@ -36,34 +36,101 @@
     // do not statically import Device here — a failed import would block the whole module.
     // We'll dynamically load it when actually joining a room.
     let Device = null;
+    let deviceLoadPromise = null;
 
-    // Helper: load local mediasoup-client vendor module and expose Device
+    // Helper: load mediasoup-client Device, trying local vendor copies first and
+    // falling back to a CDN copy. We attempt both native ES module endpoints and
+    // UMD bundles so the app can recover even if only the minified browser build
+    // is available.
     async function loadDeviceModule() {
       if (Device) return Device;
-      return new Promise((resolve, reject) => {
-        // import from the server-provided vendor path
-        const code = "import { Device as D } from '/vendor/mediasoup-client.js'; window.__msDevice = D;";
-        const blob = new Blob([code], { type: 'text/javascript' });
-        const url = URL.createObjectURL(blob);
-        const script = document.createElement('script');
-        script.type = 'module';
-        script.src = url;
-        script.onload = () => {
-          URL.revokeObjectURL(url);
-          if (window.__msDevice) {
-            Device = window.__msDevice;
-            delete window.__msDevice;
-            resolve(Device);
-          } else {
-            reject(new Error('mediasoup-client loaded but did not expose Device'));
-          }
-        };
-        script.onerror = (e) => {
-          URL.revokeObjectURL(url);
-          reject(new Error('Failed to load mediasoup-client module'));
-        };
-        document.head.appendChild(script);
-      });
+      if (deviceLoadPromise) return deviceLoadPromise;
+
+      const moduleSources = [
+        '/vendor/mediasoup-client.js',
+        '/vendor/mediasoup-client.mjs',
+        'https://cdn.jsdelivr.net/npm/mediasoup-client@3.17.1/lib/index.mjs',
+        'https://cdn.jsdelivr.net/npm/mediasoup-client@3.11.4/lib/index.mjs',
+        'https://esm.sh/mediasoup-client@3.17.1?bundle',
+      ];
+      const scriptSources = [
+        '/vendor/mediasoup-client.min.js',
+        'https://cdn.jsdelivr.net/npm/mediasoup-client@3.17.1/lib/mediasoup-client.min.js',
+        'https://unpkg.com/mediasoup-client@3.17.1/lib/mediasoup-client.min.js',
+      ];
+
+      const errors = [];
+
+      async function tryModule(src) {
+        try {
+          const mod = await import(/* @vite-ignore */ src);
+          const exported = mod?.Device || mod?.default?.Device || mod?.default;
+          if (typeof exported !== 'function') throw new Error('Device export missing');
+          Device = exported;
+          return true;
+        } catch (err) {
+          console.warn(`Failed to load mediasoup-client module from ${src}`, err);
+          errors.push({ src, err });
+          return false;
+        }
+      }
+
+      async function tryScript(src) {
+        try {
+          await new Promise((resolve, reject) => {
+            const existing = document.querySelector(`script[data-mediasoup-src="${src}"]`);
+            if (existing && existing.dataset.loaded === 'true') return resolve();
+            if (existing && existing.dataset.loaded === 'error') {
+              existing.remove();
+            } else if (existing && existing.dataset.loaded === 'false') {
+              existing.addEventListener('load', resolve, { once: true });
+              existing.addEventListener('error', () => reject(new Error(`Failed loading script ${src}`)), { once: true });
+              return;
+            }
+            const script = document.createElement('script');
+            script.type = 'text/javascript';
+            script.async = true;
+            script.dataset.mediasoupSrc = src;
+            script.dataset.loaded = 'false';
+            script.addEventListener('load', () => {
+              script.dataset.loaded = 'true';
+              resolve();
+            });
+            script.addEventListener('error', () => {
+              script.dataset.loaded = 'error';
+              reject(new Error(`Failed loading script ${src}`));
+            });
+            script.src = src;
+            document.head.appendChild(script);
+          });
+          const candidate = window.mediasoupClient?.Device || window.mediasoupClient;
+          if (typeof candidate !== 'function') throw new Error('window.mediasoupClient.Device missing');
+          Device = candidate;
+          return true;
+        } catch (err) {
+          console.warn(`Failed to load mediasoup-client script from ${src}`, err);
+          errors.push({ src, err });
+          return false;
+        }
+      }
+
+      deviceLoadPromise = (async () => {
+        for (const src of moduleSources) {
+          if (await tryModule(src)) return Device;
+        }
+        for (const src of scriptSources) {
+          if (await tryScript(src)) return Device;
+        }
+        const error = new Error('Unable to load mediasoup-client');
+        error.details = errors.slice();
+        throw error;
+      })();
+
+      try {
+        return await deviceLoadPromise;
+      } finally {
+        if (!Device) deviceLoadPromise = null;
+      }
     }
 
     const ROOMS = ['room1','room2','room3','room4','room5','room6','room7','room8'];
@@ -102,19 +169,19 @@
         return;
       }
       log('Connecting to room ' + room);
-      // connect socket with room in query
-      socket = io({ query: { room } });
 
-      // dynamically load mediasoup-client Device via module script helper
+      // dynamically load mediasoup-client Device before connecting
       try {
-        await loadDeviceModule();
+        const DeviceClass = await loadDeviceModule();
+        Device = DeviceClass;
       } catch (err) {
         console.error('Failed to load mediasoup-client:', err);
         alert('Failed to load mediasoup client. Check console for details.');
-        socket.disconnect();
-        socket = null;
         return;
       }
+
+      // connect socket with room in query after mediasoup is ready
+      socket = io({ query: { room } });
 
       socket.on('connect_error', (e) => { log('connect_error'); });
       socket.on('error', (msg) => { alert('Server error: '+msg); });
@@ -146,7 +213,18 @@
 
       // get user media (video + audio)
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        const mediaConstraints = {
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+          video: {
+            width: { ideal: 640, max: 640 },
+            height: { ideal: 360, max: 360 },
+            frameRate: { ideal: 15, max: 15 },
+          },
+        };
+        localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
         localVideo.srcObject = localStream;
       } catch (err) {
         alert('Microphone & camera required');
@@ -179,7 +257,24 @@
       const tracks = localStream.getTracks();
       for (const track of tracks) {
         try {
-          await sendTransport.produce({ track });
+          const kind = track.kind;
+          const encodings =
+            kind === 'video'
+              ? [
+                  {
+                    maxBitrate: 600000,
+                    scaleResolutionDownBy: 1,
+                  },
+                ]
+              : undefined;
+          const codecOptions =
+            kind === 'audio'
+              ? {
+                  opusStereo: true,
+                  opusDtx: true,
+                }
+              : undefined;
+          await sendTransport.produce({ track, encodings, codecOptions });
         } catch (e) {
           console.warn('produce error', e);
         }
