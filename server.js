@@ -165,8 +165,13 @@ async function start() {
 
     // Accept room and admin directly from handshake query (no tokens)
     const qs = socket.handshake.query || {};
-    const room = qs.room;
+    const room = Array.isArray(qs.room) ? qs.room[0] : qs.room;
     const adminFlag = qs.admin === "1" || qs.admin === "true";
+    let displayName = Array.isArray(qs.name) ? qs.name[0] : qs.name;
+    displayName = typeof displayName === "string" ? displayName.trim() : "";
+    if (displayName) {
+      displayName = displayName.replace(/\s+/g, " ");
+    }
 
     if (!room || !ROOMS.includes(room)) {
       socket.emit("error", "missing or invalid room");
@@ -174,8 +179,19 @@ async function start() {
       return;
     }
 
+    if (!displayName) {
+      socket.emit("error", "display name required");
+      socket.disconnect(true);
+      return;
+    }
+
+    if (displayName.length > 60) {
+      displayName = displayName.slice(0, 60);
+    }
+
     socket.data.isAdmin = !!adminFlag;
     socket.data.room = room;
+    socket.data.displayName = displayName;
 
     socket.join(room);
 
@@ -186,14 +202,24 @@ async function start() {
     // send existing peers to joining client
     socket.emit(
       "peers",
-      otherPeers.map((id) => ({
-        id,
-        admin: !!io.sockets.sockets.get(id)?.data?.isAdmin,
-      }))
+      otherPeers.map((id) => {
+        const peerSocket = io.sockets.sockets.get(id);
+        return {
+          id,
+          admin: !!peerSocket?.data?.isAdmin,
+          name: peerSocket?.data?.displayName || "",
+        };
+      })
     );
 
     // notify others
-    socket.to(room).emit("peer-joined", { id: socket.id, admin: socket.data.isAdmin });
+    socket
+      .to(room)
+      .emit("peer-joined", {
+        id: socket.id,
+        admin: socket.data.isAdmin,
+        name: socket.data.displayName,
+      });
 
     // basic signaling for non-mediasoup fallback (kept for compatibility)
     socket.on("signal", (msg) => {
@@ -214,17 +240,20 @@ async function start() {
         socket.emit("error", "target not found in room");
         return;
       }
-      target.emit("kicked", { by: socket.id });
+      target.emit("kicked", { by: socket.id, byName: socket.data.displayName });
       setTimeout(() => target.disconnect(true), 200);
     });
 
     // Ensure room bookkeeping
     socket.on("joinRoom", async ({ roomId }, callback) => {
       if (!rooms[roomId]) rooms[roomId] = { peers: {} };
-      rooms[roomId].peers[socket.id] = rooms[roomId].peers[socket.id] || {
-        transports: {},
-        consumers: {},
-      };
+      rooms[roomId].peers[socket.id] =
+        rooms[roomId].peers[socket.id] || {
+          transports: {},
+          consumers: {},
+        };
+      rooms[roomId].peers[socket.id].name = socket.data.displayName;
+      rooms[roomId].peers[socket.id].isAdmin = socket.data.isAdmin;
       callback && callback({ joined: true });
     });
 
@@ -396,7 +425,9 @@ async function start() {
         delete roomObj.peers[socket.id];
         console.log(`Peer ${socket.id} left room ${roomId}`);
       }
-      socket.to(room).emit("peer-left", { id: socket.id });
+      socket
+        .to(room)
+        .emit("peer-left", { id: socket.id, name: socket.data.displayName });
     });
   });
 

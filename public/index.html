@@ -2,42 +2,439 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Church Intercom — Audio Rooms</title>
   <style>
-    body { font-family: sans-serif; margin: 20px; }
-    .rooms { margin-bottom: 12px; }
-    button { margin: 4px; }
-    .session-controls { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
-    .local-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .peer-list { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
-    .peer-card { border: 1px solid #ccc; padding: 8px; border-radius: 6px; min-width: 180px; background: #f9f9f9; }
-    .peer-card .header { font-weight: bold; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
-    .peer-card audio { width: 100%; }
-    .peer-card .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-    .admin-badge { color: #b26; font-size: 0.85em; }
+    :root {
+      color-scheme: light dark;
+      --surface: rgba(255, 255, 255, 0.88);
+      --surface-strong: rgba(255, 255, 255, 0.96);
+      --border: rgba(15, 23, 42, 0.12);
+      --border-strong: rgba(15, 23, 42, 0.2);
+      --text: #0f172a;
+      --muted: rgba(15, 23, 42, 0.6);
+      --primary: #4059ff;
+      --primary-dark: #2433b8;
+      --primary-soft: rgba(64, 89, 255, 0.1);
+      --danger: #c2410c;
+      font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(160deg, #f3f4ff 0%, #eef2ff 35%, #f8fafc 100%);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 32px 16px 48px;
+    }
+
+    .app-shell {
+      width: min(960px, 100%);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .app-header {
+      text-align: center;
+    }
+
+    .app-header h1 {
+      margin: 0 0 6px;
+      font-size: clamp(1.5rem, 3vw, 2.25rem);
+      letter-spacing: -0.02em;
+    }
+
+    .app-header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .panel {
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px clamp(16px, 3vw, 28px);
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .panel-header h2 {
+      margin: 0;
+      font-size: 1.1rem;
+      letter-spacing: -0.01em;
+    }
+
+    .panel-header .subtle,
+    .subtle {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .join-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .field-label {
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border-strong);
+      font-size: 1rem;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      background: var(--surface-strong);
+    }
+
+    input[type="text"]:focus-visible {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-soft);
+    }
+
+    #rooms {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+    }
+
+    #rooms button {
+      width: 100%;
+      padding: 14px 20px;
+      text-align: center;
+      box-shadow: 0 12px 24px rgba(64, 89, 255, 0.12);
+    }
+
+    #rooms button:hover:not(:disabled),
+    #rooms button:focus-visible:not(:disabled) {
+      box-shadow: 0 16px 32px rgba(64, 89, 255, 0.2);
+    }
+
+    button {
+      appearance: none;
+      border: none;
+      border-radius: 999px;
+      padding: 10px 18px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--primary);
+      color: white;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+    }
+
+    button:hover:not(:disabled),
+    button:focus-visible:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(64, 89, 255, 0.24);
+      outline: none;
+      background: var(--primary-dark);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      background: rgba(15, 23, 42, 0.15);
+      color: rgba(15, 23, 42, 0.45);
+      box-shadow: none;
+    }
+
+    .secondary {
+      background: rgba(15, 23, 42, 0.08);
+      color: var(--text);
+    }
+
+    .secondary:hover:not(:disabled),
+    .secondary:focus-visible:not(:disabled) {
+      background: rgba(15, 23, 42, 0.16);
+      box-shadow: none;
+    }
+
+    .session-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .session-controls .status {
+      min-height: 1.2em;
+      color: var(--muted);
+      font-size: 0.85rem;
+      flex: 1;
+      text-align: right;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.95rem;
+      color: var(--text);
+    }
+
+    .toggle input {
+      width: 18px;
+      height: 18px;
+    }
+
+    .local-controls,
+    .peer-card .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .mic-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .mic-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.08);
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+
+    .status-chip.live {
+      background: rgba(34, 197, 94, 0.18);
+      color: #166534;
+    }
+
+    .status-chip.muted {
+      background: rgba(234, 179, 8, 0.18);
+      color: #92400e;
+    }
+
+    .status-chip.ptt {
+      background: rgba(14, 165, 233, 0.18);
+      color: #0f609b;
+    }
+
+    .status-chip.offline {
+      background: rgba(15, 23, 42, 0.08);
+      color: var(--muted);
+    }
+
+    .peer-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    .peer-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: var(--surface-strong);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    }
+
+    .peer-card .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .name-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .peer-name {
+      font-weight: 600;
+      font-size: 1rem;
+      word-break: break-word;
+    }
+
+    .peer-id {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .admin-badge {
+      color: var(--primary);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .peer-card audio {
+      width: 100%;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.05);
+    }
+
+    .peer-card .actions button {
+      flex: 1;
+    }
+
+    .kick {
+      background: rgba(194, 65, 12, 0.12);
+      color: var(--danger);
+    }
+
+    .kick:hover:not(:disabled),
+    .kick:focus-visible:not(:disabled) {
+      background: rgba(194, 65, 12, 0.2);
+      box-shadow: none;
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding: 24px 12px 36px;
+      }
+
+      .session-controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .session-controls button,
+      .peer-card .actions button {
+        width: 100%;
+      }
+
+      .session-controls .status {
+        width: 100%;
+        text-align: left;
+      }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --surface: rgba(15, 23, 42, 0.6);
+        --surface-strong: rgba(15, 23, 42, 0.75);
+        --border: rgba(148, 163, 184, 0.25);
+        --border-strong: rgba(148, 163, 184, 0.45);
+        --text: #e2e8f0;
+        --muted: rgba(226, 232, 240, 0.7);
+      }
+
+      body {
+        background: radial-gradient(circle at top, rgba(30, 64, 175, 0.35), rgba(15, 23, 42, 0.95));
+      }
+
+      button:disabled {
+        background: rgba(226, 232, 240, 0.1);
+        color: rgba(226, 232, 240, 0.5);
+      }
+
+      .secondary {
+        background: rgba(226, 232, 240, 0.12);
+        color: var(--text);
+      }
+
+      .secondary:hover:not(:disabled),
+      .secondary:focus-visible:not(:disabled) {
+        background: rgba(226, 232, 240, 0.18);
+      }
+
+      .status-chip {
+        background: rgba(226, 232, 240, 0.12);
+      }
+    }
   </style>
 </head>
 <body>
-  <h3>Church Intercom — 8 Audio Rooms (click to join)</h3>
-  <div class="rooms" id="rooms"></div>
-  <div class="session-controls">
-    <label><input type="checkbox" id="adminMode" /> Join as admin</label>
-    <button id="leave" disabled>Leave</button>
-    <span id="status"></span>
-  </div>
+  <div class="app-shell">
+    <header class="app-header">
+      <h1>Church Intercom</h1>
+      <p>Join an audio room to coordinate from any device.</p>
+    </header>
 
-  <div id="locals">
-    <h4>Local Microphone</h4>
-    <div class="local-controls">
-      <span id="micStatus">Disconnected</span>
-      <button id="mute" disabled>Mute Mic</button>
-      <button id="pushToTalk" disabled>Push to Talk</button>
-    </div>
-  </div>
+    <section class="panel join-panel">
+      <div class="panel-header">
+        <h2>Join a room</h2>
+        <span class="subtle">Enter your name, pick a room, and hop in.</span>
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="displayName">Display name</label>
+        <input
+          type="text"
+          id="displayName"
+          maxlength="40"
+          autocomplete="name"
+          autocapitalize="words"
+          spellcheck="false"
+          placeholder="e.g. Sarah Johnson"
+        />
+      </div>
+      <div id="rooms" aria-label="Available rooms"></div>
+      <div class="session-controls">
+        <label class="toggle"><input type="checkbox" id="adminMode" /> Join as admin</label>
+        <button id="leave" class="secondary" disabled>Leave room</button>
+        <span id="status" class="status" role="status" aria-live="polite"></span>
+      </div>
+    </section>
 
-  <div id="remotes">
-    <h4>Participants</h4>
-    <div id="remoteList" class="peer-list"></div>
+    <section id="locals" class="panel mic-panel">
+      <div class="panel-header">
+        <h2>Local Microphone</h2>
+        <span id="localName" class="subtle">Name not set</span>
+      </div>
+      <div class="mic-status">
+        <span id="micStatus" class="status-chip offline">Disconnected</span>
+      </div>
+      <div class="local-controls">
+        <button id="mute" disabled>Mute Mic</button>
+        <button id="pushToTalk" disabled>Push to Talk</button>
+      </div>
+    </section>
+
+    <section id="remotes" class="panel participants-panel">
+      <div class="panel-header">
+        <h2>Participants</h2>
+        <span class="subtle">Everyone else in your room will appear here.</span>
+      </div>
+      <div id="remoteList" class="peer-list" role="list"></div>
+    </section>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -151,10 +548,15 @@
     const pushToTalkBtn = document.getElementById('pushToTalk');
     const micStatusEl = document.getElementById('micStatus');
     const remoteList = document.getElementById('remoteList');
+    const nameInput = document.getElementById('displayName');
+    const localNameEl = document.getElementById('localName');
 
     for (const r of ROOMS) {
       const btn = document.createElement('button');
-      btn.textContent = `Join ${r}`;
+      btn.type = 'button';
+      const prettyRoom = r.replace(/room(\d+)/i, 'Room $1');
+      btn.textContent = `Join ${prettyRoom}`;
+      btn.setAttribute('aria-label', `Join ${prettyRoom}`);
       btn.onclick = () => joinRoom(r);
       roomsDiv.appendChild(btn);
     }
@@ -169,12 +571,36 @@
     let micMuted = false;
     let pushToTalkActive = false;
     let isAdmin = false;
+    let displayName = '';
+    let joiningRoom = false;
     let disconnectHandler = null;
     const peersInfo = new Map();
     const peerCards = new Map();
     const producerToPeer = new Map();
 
+    function summarizeId(id) {
+      if (!id) return '';
+      const str = String(id);
+      if (str.length <= 12) return `ID • ${str}`;
+      return `ID • ${str.slice(0, 4)}…${str.slice(-4)}`;
+    }
+
+    function peerDisplayName(peerId, name) {
+      if (typeof name === 'string' && name.trim()) {
+        return name.trim();
+      }
+      if (!peerId) return 'Participant';
+      const tail = String(peerId).slice(-4);
+      return `Guest ${tail}`;
+    }
+
     function log(s) { console.log(s); statusEl.textContent = s; }
+
+    function setRoomButtonsDisabled(state) {
+      for (const btn of roomsDiv.querySelectorAll('button')) {
+        btn.disabled = state;
+      }
+    }
 
     leaveBtn.onclick = () => {
       cleanup(true);
@@ -228,16 +654,22 @@
     }
 
     function updateMicStatus() {
+      if (!micStatusEl) return;
+      micStatusEl.classList.remove('live', 'muted', 'offline', 'ptt');
       if (!localStream) {
         micStatusEl.textContent = 'Disconnected';
+        micStatusEl.classList.add('offline');
         return;
       }
       if (micMuted && pushToTalkActive) {
         micStatusEl.textContent = 'Push-to-talk (live)';
+        micStatusEl.classList.add('ptt');
       } else if (micMuted) {
         micStatusEl.textContent = 'Muted';
+        micStatusEl.classList.add('muted');
       } else {
         micStatusEl.textContent = 'Live';
+        micStatusEl.classList.add('live');
       }
     }
 
@@ -251,6 +683,23 @@
         alert('Already connected. Leave first.');
         return;
       }
+      if (joiningRoom) {
+        alert('Connection in progress. Please wait.');
+        return;
+      }
+
+      const rawName = (nameInput?.value || '').trim();
+      if (!rawName) {
+        alert('Please enter your name before joining a room.');
+        nameInput?.focus();
+        return;
+      }
+      const normalizedName = rawName.replace(/\s+/g, ' ');
+      displayName = normalizedName.slice(0, 60);
+      nameInput.value = displayName;
+      localNameEl.textContent = displayName;
+      joiningRoom = true;
+      setRoomButtonsDisabled(true);
       log('Connecting to room ' + room);
 
       try {
@@ -259,13 +708,16 @@
       } catch (err) {
         console.error('Failed to load mediasoup-client:', err);
         alert('Failed to load mediasoup client. Check console for details.');
+        joiningRoom = false;
+        setRoomButtonsDisabled(false);
         return;
       }
 
       isAdmin = !!adminToggle.checked;
       adminToggle.disabled = true;
+      nameInput.disabled = true;
 
-      const query = { room };
+      const query = { room, name: displayName };
       if (isAdmin) query.admin = '1';
       socket = io({ query });
 
@@ -276,30 +728,33 @@
 
       socket.on('connect_error', () => { log('connect_error'); });
       socket.on('error', (msg) => { alert('Server error: ' + msg); });
-      socket.on('kicked', ({ by }) => {
-        alert('You were kicked');
+      socket.on('kicked', ({ by, byName }) => {
+        const kicker = byName || peersInfo.get(by)?.name || 'an admin';
+        alert(`You were removed by ${kicker}.`);
         cleanup(true);
       });
 
       socket.on('peers', (list) => {
         for (const peer of list || []) {
-          peersInfo.set(peer.id, { admin: !!peer.admin });
+          peersInfo.set(peer.id, { admin: !!peer.admin, name: peer.name || '' });
           ensurePeerCard(peer.id);
         }
         refreshPeerCards();
       });
 
-      socket.on('peer-joined', ({ id, admin }) => {
-        peersInfo.set(id, { admin: !!admin });
+      socket.on('peer-joined', ({ id, admin, name }) => {
+        peersInfo.set(id, { admin: !!admin, name: name || '' });
         ensurePeerCard(id);
-        log('peer-joined: ' + id);
+        const label = name ? `${name} (${id})` : id;
+        log('peer-joined: ' + label);
         refreshPeerCards();
       });
 
-      socket.on('peer-left', ({ id }) => {
+      socket.on('peer-left', ({ id, name }) => {
         peersInfo.delete(id);
         removePeerCard(id);
-        log('peer-left: ' + id);
+        const label = name ? `${name} (${id})` : id;
+        log('peer-left: ' + label);
         refreshPeerCards();
       });
 
@@ -397,6 +852,8 @@
       }
 
       leaveBtn.disabled = false;
+      localNameEl.textContent = displayName ? `${displayName} · connected` : 'Connected';
+      joiningRoom = false;
       log('Joined ' + room);
       refreshPeerCards();
       updateMicStatus();
@@ -479,14 +936,29 @@
       const card = document.createElement('div');
       card.className = 'peer-card';
       card.dataset.peerId = peerId;
+      card.setAttribute('role', 'listitem');
 
       const header = document.createElement('div');
       header.className = 'header';
+
+      const nameBlock = document.createElement('div');
+      nameBlock.className = 'name-block';
+
       const name = document.createElement('span');
+      name.className = 'peer-name';
       name.textContent = peerId;
+
+      const idMeta = document.createElement('span');
+      idMeta.className = 'peer-id';
+      idMeta.textContent = summarizeId(peerId);
+
+      nameBlock.appendChild(name);
+      nameBlock.appendChild(idMeta);
+
       const badge = document.createElement('span');
       badge.className = 'admin-badge';
-      header.appendChild(name);
+
+      header.appendChild(nameBlock);
       header.appendChild(badge);
       card.appendChild(header);
 
@@ -513,6 +985,7 @@
         peerId,
         card,
         nameEl: name,
+        idEl: idMeta,
         adminBadge: badge,
         audio,
         actions,
@@ -573,6 +1046,16 @@
         remoteList.appendChild(record.card);
       }
       const meta = peersInfo.get(peerId);
+      const display = peerDisplayName(peerId, meta?.name);
+      if (record.nameEl) {
+        record.nameEl.textContent = display;
+        record.nameEl.title = display;
+      }
+      if (record.idEl) {
+        record.idEl.textContent = summarizeId(peerId);
+      }
+      record.card.dataset.peerName = display;
+      record.card.setAttribute('aria-label', display);
       record.adminBadge.textContent = meta?.admin ? 'admin' : '';
       updateKickButton(record);
       return record;
@@ -590,6 +1073,7 @@
       if (record.kickBtn) return;
       const btn = document.createElement('button');
       btn.textContent = 'Kick';
+      btn.classList.add('kick');
       btn.addEventListener('click', () => {
         if (!socket) return;
         socket.emit('kick', { targetId: record.peerId });
@@ -601,6 +1085,16 @@
     function refreshPeerCards() {
       for (const record of peerCards.values()) {
         const meta = peersInfo.get(record.peerId);
+        const display = peerDisplayName(record.peerId, meta?.name);
+        if (record.nameEl) {
+          record.nameEl.textContent = display;
+          record.nameEl.title = display;
+        }
+        if (record.idEl) {
+          record.idEl.textContent = summarizeId(record.peerId);
+        }
+        record.card.dataset.peerName = display;
+        record.card.setAttribute('aria-label', display);
         record.adminBadge.textContent = meta?.admin ? 'admin' : '';
         if (record.muted && !record.pushHeld) {
           record.audio.muted = true;
@@ -697,6 +1191,7 @@
       micMuted = false;
       pushToTalkActive = false;
       isAdmin = false;
+      joiningRoom = false;
       enableMicControls(false);
       muteBtn.textContent = 'Mute Mic';
       updateMicStatus();
@@ -705,6 +1200,11 @@
 
       leaveBtn.disabled = true;
       adminToggle.disabled = false;
+      nameInput.disabled = false;
+      localNameEl.textContent = displayName
+        ? `${displayName} · not connected`
+        : 'Name not set';
+      setRoomButtonsDisabled(false);
 
       log('Left');
     }
