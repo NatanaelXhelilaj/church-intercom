@@ -19,6 +19,8 @@ async function start() {
 
   const PORT = process.env.PORT || 3000;
   const ANNOUNCED_IP = process.env.ANNOUNCED_IP || "127.0.0.1"; // change to your public/LAN IP
+  const MAX_INCOMING_BITRATE = parseInt(process.env.MAX_INCOMING_BITRATE || "800000", 10);
+  const INITIAL_AVAILABLE_BITRATE = parseInt(process.env.INITIAL_AVAILABLE_BITRATE || "1000000", 10);
 
   // Config: 8 rooms named room1..room8
   const ROOMS = Array.from({ length: 8 }, (_, i) => `room${i + 1}`);
@@ -28,13 +30,23 @@ async function start() {
   const candidates = [
     path.join(__dirname, "node_modules", "mediasoup-client", "lib", "mediasoup-client.es.js"),
     path.join(__dirname, "node_modules", "mediasoup-client", "lib", "mediasoup-client.js"),
+    path.join(__dirname, "node_modules", "mediasoup-client", "lib", "index.mjs"),
     path.join(__dirname, "node_modules", "mediasoup-client", "dist", "mediasoup-client.es.js"),
     path.join(__dirname, "node_modules", "mediasoup-client", "dist", "mediasoup-client.js"),
+    path.join(__dirname, "node_modules", "mediasoup-client", "dist", "mediasoup-client.min.js"),
+    path.join(__dirname, "node_modules", "mediasoup-client", "lib", "mediasoup-client.min.js"),
   ];
   const vendorFile = candidates.find((p) => fs.existsSync(p));
   if (vendorFile) {
-    app.get("/vendor/mediasoup-client.js", (req, res) => {
-      res.sendFile(vendorFile);
+    const vendorRoutes = [
+      "/vendor/mediasoup-client.js",
+      "/vendor/mediasoup-client.mjs",
+      "/vendor/mediasoup-client.min.js",
+    ];
+    vendorRoutes.forEach((route) => {
+      app.get(route, (req, res) => {
+        res.sendFile(vendorFile);
+      });
     });
     console.log("Serving mediasoup-client from:", vendorFile);
   } else {
@@ -146,7 +158,16 @@ async function start() {
           enableUdp: true,
           enableTcp: true,
           preferUdp: true,
+          initialAvailableOutgoingBitrate: INITIAL_AVAILABLE_BITRATE,
         });
+
+        if (!Number.isNaN(MAX_INCOMING_BITRATE) && MAX_INCOMING_BITRATE > 0) {
+          try {
+            await transport.setMaxIncomingBitrate(MAX_INCOMING_BITRATE);
+          } catch (err) {
+            console.warn("setMaxIncomingBitrate failed", err.message);
+          }
+        }
 
         rooms[roomId].peers[socket.id].transports[transport.id] = transport;
 
