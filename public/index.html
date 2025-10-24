@@ -232,6 +232,30 @@
       gap: 14px;
     }
 
+    .house-feed-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .house-feed-body {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .house-feed-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .house-feed-help {
+      margin: 0;
+    }
+
     .mic-status {
       display: inline-flex;
       align-items: center;
@@ -262,6 +286,16 @@
     .status-chip.ptt {
       background: rgba(14, 165, 233, 0.18);
       color: #0f609b;
+    }
+
+    .status-chip.pending {
+      background: rgba(59, 130, 246, 0.18);
+      color: #1d4ed8;
+    }
+
+    .status-chip.error {
+      background: rgba(248, 113, 113, 0.18);
+      color: #b91c1c;
     }
 
     .status-chip.offline {
@@ -526,6 +560,20 @@
       </div>
     </section>
 
+    <section id="houseFeed" class="panel house-feed-panel hidden" aria-live="polite">
+      <div class="panel-header">
+        <h2>House Feed</h2>
+        <span id="houseFeedSubtitle" class="subtle">Streamed from the venue audio input.</span>
+      </div>
+      <div class="house-feed-body">
+        <span id="houseFeedStatus" class="status-chip offline">Offline</span>
+        <div class="house-feed-actions">
+          <button id="houseFeedToggle" class="secondary">Start house feed</button>
+        </div>
+      </div>
+      <p id="houseFeedHelp" class="subtle house-feed-help">Only admins in the room can start this feed.</p>
+    </section>
+
     <section id="remotes" class="panel participants-panel hidden">
       <div class="panel-header">
         <h2>Participants</h2>
@@ -684,6 +732,11 @@
     const remoteList = document.getElementById('remoteList');
     const nameInput = document.getElementById('displayName');
     const localNameEl = document.getElementById('localName');
+    const houseFeedPanel = document.getElementById('houseFeed');
+    const houseFeedStatus = document.getElementById('houseFeedStatus');
+    const houseFeedToggle = document.getElementById('houseFeedToggle');
+    const houseFeedHelp = document.getElementById('houseFeedHelp');
+    const houseFeedSubtitle = document.getElementById('houseFeedSubtitle');
     const isDesktopClient = !/Android|webOS|iPhone|iPad|iPod|BlackBerry|Windows Phone/i.test(navigator.userAgent || '');
     const canSelectOutputDevice =
       typeof HTMLMediaElement !== 'undefined' && typeof HTMLMediaElement.prototype.setSinkId === 'function';
@@ -699,6 +752,7 @@
     const outputSelectorGroup = document.getElementById('outputSelectorGroup');
     const outputSupportNote = document.getElementById('outputSupportNote');
     const participantsPanel = document.querySelector('.participants-panel');
+    const SERVER_FEED_PREFIX = 'server-feed:';
 
     function roomLabel(roomId) {
       if (ROOM_LABELS.has(roomId)) {
@@ -796,6 +850,11 @@
     let displayName = '';
     let joiningRoom = false;
     let disconnectHandler = null;
+    let currentRoomId = null;
+    let houseFeedEnabled = false;
+    let houseFeedPending = false;
+    let houseFeedPeerId = '';
+    let houseFeedName = 'House Feed';
     const peersInfo = new Map();
     const peerCards = new Map();
     const producerToPeer = new Map();
@@ -820,10 +879,71 @@
       refreshDeviceOptions();
     }
 
+    function isServerFeedId(id) {
+      return typeof id === 'string' && id.startsWith(SERVER_FEED_PREFIX);
+    }
+
+    function setHouseFeedStatus(state, label) {
+      if (!houseFeedStatus) return;
+      const classes = ['live', 'offline', 'pending', 'error'];
+      houseFeedStatus.classList.remove(...classes);
+      let text = label || '';
+      switch (state) {
+        case 'on':
+          houseFeedStatus.classList.add('live');
+          text = text || 'Streaming';
+          break;
+        case 'pending':
+          houseFeedStatus.classList.add('pending');
+          text = text || 'Starting…';
+          break;
+        case 'error':
+          houseFeedStatus.classList.add('error');
+          text = text || 'Unavailable';
+          break;
+        default:
+          houseFeedStatus.classList.add('offline');
+          text = text || 'Offline';
+          break;
+      }
+      houseFeedStatus.textContent = text;
+    }
+
+    function updateHouseFeedControls() {
+      if (!houseFeedPanel) return;
+      const connected = !!socket;
+      houseFeedPanel.classList.toggle('hidden', !connected);
+      if (!connected) {
+        return;
+      }
+
+      if (houseFeedSubtitle) {
+        houseFeedSubtitle.textContent = houseFeedName || 'Streamed from the venue audio input.';
+      }
+
+      const canControl = !!socket && isAdmin;
+      if (houseFeedToggle) {
+        houseFeedToggle.classList.toggle('hidden', !canControl);
+        houseFeedToggle.textContent = houseFeedEnabled ? 'Stop house feed' : 'Start house feed';
+        houseFeedToggle.disabled = !canControl || houseFeedPending;
+      }
+
+      if (houseFeedHelp) {
+        if (canControl) {
+          houseFeedHelp.textContent = 'Use this switch to start or stop the venue audio for everyone in the room.';
+          houseFeedHelp.classList.remove('hidden');
+        } else {
+          houseFeedHelp.textContent = 'Waiting for an admin to start the house feed.';
+          houseFeedHelp.classList.remove('hidden');
+        }
+      }
+    }
+
     function updateParticipantsVisibility() {
       if (!participantsPanel) return;
       const shouldShow = socket ? isAdmin : !!adminToggle?.checked;
       participantsPanel.classList.toggle('hidden', !shouldShow);
+      updateHouseFeedControls();
     }
 
     function summarizeId(id) {
@@ -1023,6 +1143,8 @@
 
     updateParticipantsVisibility();
     updateDeviceSelectorsVisibility();
+    setHouseFeedStatus('off', 'Offline');
+    updateHouseFeedControls();
 
     leaveBtn.onclick = () => {
       cleanup(true);
@@ -1115,6 +1237,32 @@
 
     window.addEventListener('pagehide', handlePageExit);
     window.addEventListener('beforeunload', handlePageExit);
+
+    houseFeedToggle?.addEventListener('click', () => {
+      if (!socket || !isAdmin || !currentRoomId) {
+        return;
+      }
+      if (houseFeedPending) {
+        return;
+      }
+      houseFeedPending = true;
+      setHouseFeedStatus('pending', houseFeedEnabled ? 'Stopping…' : 'Starting…');
+      updateHouseFeedControls();
+      socket.emit('setServerFeed', { roomId: currentRoomId, enabled: !houseFeedEnabled }, (res = {}) => {
+        if (res.error) {
+          alert('House feed error: ' + res.error);
+          houseFeedPending = false;
+          setHouseFeedStatus(houseFeedEnabled ? 'on' : 'off', houseFeedEnabled ? 'Streaming' : 'Offline');
+          updateHouseFeedControls();
+          return;
+        }
+        if (typeof res.enabled === 'boolean') {
+          houseFeedEnabled = res.enabled;
+        }
+        houseFeedPending = false;
+        updateHouseFeedControls();
+      });
+    });
 
     function applyLocalTrackState() {
       if (!localStream) return;
@@ -1223,6 +1371,14 @@
       setRoomButtonsDisabled(true);
       log('Connecting to room ' + roomLabel(room));
 
+      currentRoomId = room;
+      houseFeedEnabled = false;
+      houseFeedPending = false;
+      houseFeedPeerId = '';
+      houseFeedName = 'House Feed';
+      setHouseFeedStatus('pending', 'Connecting…');
+      updateHouseFeedControls();
+
       try {
         const DeviceClass = await loadDeviceModule();
         Device = DeviceClass;
@@ -1231,6 +1387,13 @@
         alert('Failed to load mediasoup client. Check console for details.');
         joiningRoom = false;
         setRoomButtonsDisabled(false);
+        currentRoomId = null;
+        houseFeedEnabled = false;
+        houseFeedPending = false;
+        houseFeedPeerId = '';
+        houseFeedName = 'House Feed';
+        setHouseFeedStatus('off', 'Offline');
+        updateHouseFeedControls();
         return;
       }
 
@@ -1244,6 +1407,7 @@
       if (isAdmin) query.admin = '1';
       socket = io({ query });
       updateDeviceSelectorsVisibility();
+      updateHouseFeedControls();
 
       disconnectHandler = () => {
         cleanup(false);
@@ -1260,14 +1424,32 @@
 
       socket.on('peers', (list) => {
         for (const peer of list || []) {
-          peersInfo.set(peer.id, { admin: !!peer.admin, name: peer.name || '' });
+          if (!peer?.id) continue;
+          const isServer = !!peer.serverFeed || isServerFeedId(peer.id);
+          peersInfo.set(peer.id, { admin: !!peer.admin, name: peer.name || '', serverFeed: isServer });
+          if (isServer) {
+            houseFeedPeerId = peer.id;
+            if (peer.name) {
+              houseFeedName = peer.name;
+            }
+          }
           ensurePeerCard(peer.id);
         }
         refreshPeerCards();
+        updateHouseFeedControls();
       });
 
-      socket.on('peer-joined', ({ id, admin, name }) => {
-        peersInfo.set(id, { admin: !!admin, name: name || '' });
+      socket.on('peer-joined', ({ id, admin, name, serverFeed }) => {
+        if (!id) return;
+        const isServer = !!serverFeed || isServerFeedId(id);
+        peersInfo.set(id, { admin: !!admin, name: name || '', serverFeed: isServer });
+        if (isServer) {
+          houseFeedPeerId = id;
+          if (name) {
+            houseFeedName = name;
+          }
+          updateHouseFeedControls();
+        }
         ensurePeerCard(id);
         const label = name ? `${name} (${id})` : id;
         log('peer-joined: ' + label);
@@ -1277,9 +1459,51 @@
       socket.on('peer-left', ({ id, name }) => {
         peersInfo.delete(id);
         removePeerCard(id);
+        if (id && (id === houseFeedPeerId || isServerFeedId(id))) {
+          houseFeedPeerId = '';
+          houseFeedEnabled = false;
+          setHouseFeedStatus('off', 'Offline');
+          updateHouseFeedControls();
+        }
         const label = name ? `${name} (${id})` : id;
         log('peer-left: ' + label);
         refreshPeerCards();
+      });
+
+      socket.on('server-feed-state', ({ roomId: feedRoom, enabled, id, name }) => {
+        if (currentRoomId && feedRoom && feedRoom !== currentRoomId) {
+          return;
+        }
+        if (typeof id === 'string' && id) {
+          houseFeedPeerId = id;
+        }
+        if (typeof name === 'string' && name.trim()) {
+          houseFeedName = name.trim();
+        }
+        houseFeedEnabled = !!enabled;
+        if (houseFeedEnabled) {
+          setHouseFeedStatus('on', 'Streaming');
+          if (houseFeedPeerId) {
+            peersInfo.set(houseFeedPeerId, {
+              admin: false,
+              name: houseFeedName,
+              serverFeed: true,
+            });
+            ensurePeerCard(houseFeedPeerId);
+          }
+          refreshPeerCards();
+        } else {
+          setHouseFeedStatus('off', 'Offline');
+          if (houseFeedPeerId) {
+            const meta = peersInfo.get(houseFeedPeerId);
+            if (meta?.serverFeed) {
+              peersInfo.delete(houseFeedPeerId);
+              removePeerCard(houseFeedPeerId);
+            }
+          }
+        }
+        houseFeedPending = false;
+        updateHouseFeedControls();
       });
 
       socket.on('new-producer', ({ producerId, socketId }) => {
@@ -1607,6 +1831,14 @@
 
     function updateKickButton(record) {
       if (!record) return;
+      const meta = peersInfo.get(record.peerId);
+      if (meta?.serverFeed || isServerFeedId(record.peerId)) {
+        if (record.kickBtn) {
+          record.kickBtn.remove();
+          record.kickBtn = null;
+        }
+        return;
+      }
       if (!isAdmin) {
         if (record.kickBtn) {
           record.kickBtn.remove();
@@ -1694,6 +1926,14 @@
       }
       socket = null;
       disconnectHandler = null;
+
+      currentRoomId = null;
+      houseFeedEnabled = false;
+      houseFeedPending = false;
+      houseFeedPeerId = '';
+      houseFeedName = 'House Feed';
+      setHouseFeedStatus('off', 'Offline');
+      updateHouseFeedControls();
 
       for (const producer of Array.from(activeProducers)) {
         try { producer.close(); } catch (e) {}

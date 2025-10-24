@@ -27,6 +27,15 @@ Usage:
 - Use /qr?room=room1 to get a QR PNG that encodes a join URL with token.
 - Scan QR or open URL like: http://localhost:3000/?room=room1&token=...
 - Admin: use ADMIN_SECRET (default ADMIN-DEMO-TOKEN-CHANGEME) or generate admin=true tokens to kick users.
+- Room admins can start or stop the server-side "House Feed" audio stream for their room from the web UI once `SERVER_AUDIO_COMMAND` is configured.
+
+House feed streaming:
+- The server can originate an Opus audio stream into any room when the admin enables the house feed switch.
+- Set `SERVER_AUDIO_COMMAND` to a shell command that captures audio and sends RTP Opus packets to `{ip}:{port}` using the provided placeholders (`{ip}`, `{port}`, `{payloadType}`, `{ssrc}`).
+- Example (Linux ALSA) command:
+  - `SERVER_AUDIO_COMMAND="ffmpeg -hide_banner -loglevel error -f alsa -i default -ac 2 -ar 48000 -acodec libopus -b:a 128k -payload_type={payloadType} -ssrc={ssrc} -f rtp rtp://{ip}:{port}"`
+- Optionally set `SERVER_AUDIO_NAME` to change the display name shown to clients and `SERVER_AUDIO_PAYLOAD_TYPE` to match a custom payload id.
+- When no peers remain in a room the server automatically stops the house feed to release resources.
 
 Notes:
 - This demo uses in-memory tokens and a mesh WebRTC model (each peer connects to every other peer).

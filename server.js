@@ -3,6 +3,7 @@ import http from "http";
 import https from "https";
 import { Server } from "socket.io";
 import * as mediasoup from "mediasoup";
+import { spawn } from "child_process";
 
 // add these imports to compute __dirname in ESM and load environment files
 import path from "path";
@@ -166,6 +167,251 @@ async function start() {
   // Rooms { roomId: { peers: { socketId: { transports: {...}, producer, consumers: {} } } } }
   const rooms = {};
 
+  function ensureRoomState(roomId) {
+    if (!rooms[roomId]) {
+      rooms[roomId] = { peers: {}, serverFeed: null };
+    }
+    return rooms[roomId];
+  }
+
+  const SERVER_FEED_NAME = process.env.SERVER_AUDIO_NAME || "House Feed";
+  const SERVER_FEED_PREFIX = "server-feed:";
+  const SERVER_FEED_COMMAND = process.env.SERVER_AUDIO_COMMAND || "";
+  const SERVER_FEED_PAYLOAD_TYPE = parseInt(process.env.SERVER_AUDIO_PAYLOAD_TYPE || "100", 10);
+
+  function getServerFeedId(roomId) {
+    return `${SERVER_FEED_PREFIX}${roomId}`;
+  }
+
+  function tokenizeCommand(command) {
+    const tokens = [];
+    let current = "";
+    let inQuotes = false;
+    let quoteChar = "";
+    for (let i = 0; i < command.length; i += 1) {
+      const char = command[i];
+      if (inQuotes) {
+        if (char === quoteChar) {
+          inQuotes = false;
+        } else if (char === "\\" && command[i + 1] === quoteChar) {
+          current += quoteChar;
+          i += 1;
+        } else {
+          current += char;
+        }
+        continue;
+      }
+
+      if (char === "\"" || char === "'") {
+        inQuotes = true;
+        quoteChar = char;
+        continue;
+      }
+
+      if (/\s/.test(char)) {
+        if (current) {
+          tokens.push(current);
+          current = "";
+        }
+        continue;
+      }
+
+      if (char === "\\" && i + 1 < command.length) {
+        const next = command[i + 1];
+        current += next;
+        i += 1;
+        continue;
+      }
+
+      current += char;
+    }
+
+    if (current) {
+      tokens.push(current);
+    }
+
+    return tokens;
+  }
+
+  async function stopServerFeed(roomId, { skipProcessKill = false, reason = "stopped" } = {}) {
+    const roomState = rooms[roomId];
+    const feed = roomState?.serverFeed;
+    if (!feed) {
+      return;
+    }
+
+    roomState.serverFeed = null;
+
+    if (feed.child && !skipProcessKill) {
+      try {
+        feed.child.kill("SIGTERM");
+      } catch (err) {
+        console.warn("Failed to kill audio process", err.message);
+      }
+    }
+
+    if (feed.producer) {
+      try {
+        feed.producer.close();
+      } catch (err) {
+        console.warn("Failed to close server producer", err.message);
+      }
+    }
+
+    if (feed.transport) {
+      try {
+        feed.transport.close();
+      } catch (err) {
+        console.warn("Failed to close server transport", err.message);
+      }
+    }
+
+    io.to(roomId).emit("server-feed-state", {
+      roomId,
+      enabled: false,
+      id: feed.feedId,
+      reason,
+    });
+
+    io.to(roomId).emit("producer-closed", { producerId: feed.producerId });
+    io.to(roomId).emit("peer-left", { id: feed.feedId, name: feed.name });
+
+    if (roomState && Object.keys(roomState.peers || {}).length === 0) {
+      delete rooms[roomId];
+    }
+  }
+
+  async function startServerFeed(roomId) {
+    const roomState = ensureRoomState(roomId);
+    if (roomState.serverFeed?.producer) {
+      return roomState.serverFeed;
+    }
+
+    if (!SERVER_FEED_COMMAND) {
+      throw new Error("SERVER_AUDIO_COMMAND is not configured on the server");
+    }
+
+    const transport = await router.createPlainTransport({
+      listenIp: { ip: "0.0.0.0", announcedIp: ANNOUNCED_IP },
+      enableUdp: true,
+      enableTcp: false,
+      comedia: true,
+      rtcpMux: true,
+    });
+
+    const codec = router.rtpCapabilities.codecs.find(
+      (c) => c.mimeType.toLowerCase() === "audio/opus"
+    );
+    if (!codec) {
+      await transport.close();
+      throw new Error("Router does not support Opus audio");
+    }
+
+    const ssrc = Math.floor(Math.random() * 0xffffffff);
+    const payloadType = Number.isFinite(SERVER_FEED_PAYLOAD_TYPE)
+      ? SERVER_FEED_PAYLOAD_TYPE
+      : 100;
+    const cname = `${getServerFeedId(roomId)}-${Date.now()}`;
+    const rtpParameters = {
+      mid: "0",
+      codecs: [
+        {
+          mimeType: codec.mimeType,
+          payloadType,
+          clockRate: codec.clockRate,
+          channels: codec.channels,
+          parameters: {
+            useinbandfec: 1,
+            stereo: codec.channels > 1 ? 1 : 0,
+          },
+        },
+      ],
+      encodings: [
+        {
+          ssrc,
+        },
+      ],
+      rtcp: {
+        cname,
+        reducedSize: true,
+      },
+    };
+
+    const producer = await transport.produce({
+      kind: "audio",
+      rtpParameters,
+    });
+
+    const feedId = getServerFeedId(roomId);
+    const name = SERVER_FEED_NAME;
+
+    const commandReplaced = SERVER_FEED_COMMAND.replaceAll("{ip}", transport.tuple.localIp)
+      .replaceAll("{port}", String(transport.tuple.localPort))
+      .replaceAll("{payloadType}", String(payloadType))
+      .replaceAll("{ssrc}", String(ssrc));
+
+    const tokens = tokenizeCommand(commandReplaced).filter(Boolean);
+    if (tokens.length === 0) {
+      await producer.close();
+      await transport.close();
+      throw new Error("SERVER_AUDIO_COMMAND did not resolve to an executable command");
+    }
+
+    const [cmd, ...args] = tokens;
+    console.log("Starting house feed process:", cmd, args.join(" "));
+    const child = spawn(cmd, args, {
+      stdio: "ignore",
+    });
+
+    const feed = {
+      transport,
+      producer,
+      child,
+      feedId,
+      name,
+      producerId: producer.id,
+    };
+    roomState.serverFeed = feed;
+
+    child.on("exit", (code, signal) => {
+      const reason = `process-exit:${code ?? "null"}:${signal ?? "null"}`;
+      if (rooms[roomId]?.serverFeed?.child === child) {
+        stopServerFeed(roomId, { skipProcessKill: true, reason }).catch((err) =>
+          console.warn("Failed to stop server feed after process exit", err)
+        );
+      }
+    });
+
+    child.on("error", (err) => {
+      console.error("House feed process error:", err);
+      if (rooms[roomId]?.serverFeed?.child === child) {
+        stopServerFeed(roomId, {
+          skipProcessKill: true,
+          reason: `process-error:${err?.code || err?.message || "unknown"}`,
+        }).catch((error) => console.warn("Failed to stop server feed after process error", error));
+      }
+    });
+
+    producer.on("transportclose", () => {
+      stopServerFeed(roomId, { skipProcessKill: true, reason: "transport-close" }).catch(() => {});
+    });
+
+    producer.on("close", () => {
+      stopServerFeed(roomId, { skipProcessKill: true, reason: "producer-close" }).catch(() => {});
+    });
+
+    io.to(roomId).emit("peer-joined", { id: feedId, admin: false, name, serverFeed: true });
+    io.to(roomId).emit("server-feed-state", { roomId, enabled: true, id: feedId, name });
+    io.to(roomId).emit("new-producer", {
+      producerId: producer.id,
+      socketId: feedId,
+      serverFeed: true,
+      name,
+    });
+
+    return feed;
+  }
+
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
 
@@ -203,22 +449,51 @@ async function start() {
 
     socket.join(room);
 
+    const roomState = ensureRoomState(room);
+
     // collect existing peers in room
     const peers = Array.from(io.sockets.adapter.rooms.get(room) || []);
     const otherPeers = peers.filter((id) => id !== socket.id);
 
     // send existing peers to joining client
-    socket.emit(
-      "peers",
-      otherPeers.map((id) => {
-        const peerSocket = io.sockets.sockets.get(id);
-        return {
-          id,
-          admin: !!peerSocket?.data?.isAdmin,
-          name: peerSocket?.data?.displayName || "",
-        };
-      })
-    );
+    const peerSummaries = otherPeers.map((id) => {
+      const peerSocket = io.sockets.sockets.get(id);
+      return {
+        id,
+        admin: !!peerSocket?.data?.isAdmin,
+        name: peerSocket?.data?.displayName || "",
+      };
+    });
+
+    if (roomState.serverFeed?.producer) {
+      peerSummaries.push({
+        id: roomState.serverFeed.feedId,
+        admin: false,
+        name: roomState.serverFeed.name,
+        serverFeed: true,
+      });
+      socket.emit("server-feed-state", {
+        roomId: room,
+        enabled: true,
+        id: roomState.serverFeed.feedId,
+        name: roomState.serverFeed.name,
+      });
+      socket.emit("new-producer", {
+        producerId: roomState.serverFeed.producerId,
+        socketId: roomState.serverFeed.feedId,
+        serverFeed: true,
+        name: roomState.serverFeed.name,
+      });
+    } else {
+      socket.emit("server-feed-state", {
+        roomId: room,
+        enabled: false,
+        id: getServerFeedId(room),
+        name: SERVER_FEED_NAME,
+      });
+    }
+
+    socket.emit("peers", peerSummaries);
 
     // notify others
     socket
@@ -254,14 +529,14 @@ async function start() {
 
     // Ensure room bookkeeping
     socket.on("joinRoom", async ({ roomId }, callback) => {
-      if (!rooms[roomId]) rooms[roomId] = { peers: {} };
-      rooms[roomId].peers[socket.id] =
-        rooms[roomId].peers[socket.id] || {
+      const roomStateLocal = ensureRoomState(roomId);
+      roomStateLocal.peers[socket.id] =
+        roomStateLocal.peers[socket.id] || {
           transports: {},
           consumers: {},
         };
-      rooms[roomId].peers[socket.id].name = socket.data.displayName;
-      rooms[roomId].peers[socket.id].isAdmin = socket.data.isAdmin;
+      roomStateLocal.peers[socket.id].name = socket.data.displayName;
+      roomStateLocal.peers[socket.id].isAdmin = socket.data.isAdmin;
       callback && callback({ joined: true });
     });
 
@@ -272,9 +547,9 @@ async function start() {
 
     // create transport
     socket.on("createTransport", async ({ roomId }, callback) => {
-      if (!rooms[roomId]) rooms[roomId] = { peers: {} };
-      rooms[roomId].peers[socket.id] =
-        rooms[roomId].peers[socket.id] || { transports: {}, consumers: {} };
+      const roomStateLocal = ensureRoomState(roomId);
+      roomStateLocal.peers[socket.id] =
+        roomStateLocal.peers[socket.id] || { transports: {}, consumers: {} };
 
       try {
         const transport = await router.createWebRtcTransport({
@@ -293,7 +568,7 @@ async function start() {
           }
         }
 
-        rooms[roomId].peers[socket.id].transports[transport.id] = transport;
+        roomStateLocal.peers[socket.id].transports[transport.id] = transport;
 
         callback &&
           callback({
@@ -330,8 +605,9 @@ async function start() {
         const transport = rooms[roomId]?.peers[socket.id]?.transports?.[transportId];
         if (!transport) return callback && callback({ error: "transport not found" });
         const producer = await transport.produce({ kind, rtpParameters });
-        rooms[roomId].peers[socket.id].producer = producer;
-        rooms[roomId].peers[socket.id].producerId = producer.id;
+        const roomStateLocal = ensureRoomState(roomId);
+        roomStateLocal.peers[socket.id].producer = producer;
+        roomStateLocal.peers[socket.id].producerId = producer.id;
 
         // notify other peers in the room about the new producer
         socket.to(roomId).emit("new-producer", { producerId: producer.id, socketId: socket.id });
@@ -353,9 +629,17 @@ async function start() {
     // list current producers in the room (excluding requester)
     socket.on("getProducers", ({ roomId }, callback) => {
       const list = [];
-      const peers = rooms[roomId]?.peers || {};
+      const roomStateLocal = rooms[roomId];
+      const peers = roomStateLocal?.peers || {};
       for (const [id, p] of Object.entries(peers)) {
         if (p.producerId && id !== socket.id) list.push({ producerId: p.producerId, socketId: id });
+      }
+      if (roomStateLocal?.serverFeed?.producerId) {
+        list.push({
+          producerId: roomStateLocal.serverFeed.producerId,
+          socketId: roomStateLocal.serverFeed.feedId,
+          serverFeed: true,
+        });
       }
       callback && callback(list);
     });
@@ -375,7 +659,8 @@ async function start() {
           paused: false,
         });
 
-        rooms[roomId].peers[socket.id].consumers[consumer.id] = consumer;
+        const roomStateLocal = ensureRoomState(roomId);
+        roomStateLocal.peers[socket.id].consumers[consumer.id] = consumer;
 
         consumer.on("transportclose", () => {
           consumer.close();
@@ -439,7 +724,13 @@ async function start() {
         console.log(`Peer ${socket.id} left room ${roomId}`);
 
         if (Object.keys(roomObj.peers).length === 0) {
-          delete rooms[roomId];
+          if (roomObj.serverFeed) {
+            stopServerFeed(roomId).catch((err) =>
+              console.warn("Failed to stop server feed after last peer left", err)
+            );
+          } else {
+            delete rooms[roomId];
+          }
         }
       }
 
@@ -456,6 +747,29 @@ async function start() {
 
     socket.on("disconnecting", cleanupPeer);
     socket.on("disconnect", cleanupPeer);
+
+    socket.on("setServerFeed", async ({ roomId, enabled }, callback = () => {}) => {
+      if (!socket.data.isAdmin) {
+        callback({ error: "not authorized" });
+        return;
+      }
+      if (!roomId || socket.data.room !== roomId) {
+        callback({ error: "invalid room" });
+        return;
+      }
+
+      try {
+        if (enabled) {
+          await startServerFeed(roomId);
+        } else {
+          await stopServerFeed(roomId);
+        }
+        callback({ ok: true, enabled: !!enabled });
+      } catch (err) {
+        console.error("setServerFeed error", err);
+        callback({ error: err.message || "failed" });
+      }
+    });
   });
 
   server.listen(PORT, () => {
