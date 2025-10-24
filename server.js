@@ -1,5 +1,6 @@
 import express from "express";
 import http from "http";
+import https from "https";
 import { Server } from "socket.io";
 import * as mediasoup from "mediasoup";
 
@@ -10,7 +11,42 @@ import fs from "fs";
 
 async function start() {
   const app = express();
-  const server = http.createServer(app);
+  const HTTPS_ENABLED = ["1", "true", "yes"].includes(
+    (process.env.HTTPS || "").toLowerCase()
+  );
+
+  let server;
+  if (HTTPS_ENABLED) {
+    const keyPath = process.env.SSL_KEY_PATH;
+    const certPath = process.env.SSL_CERT_PATH;
+    const caPath = process.env.SSL_CA_PATH;
+
+    if (!keyPath || !certPath) {
+      console.error(
+        "HTTPS is enabled but SSL_KEY_PATH and SSL_CERT_PATH environment variables are not both set."
+      );
+      process.exit(1);
+    }
+
+    try {
+      const httpsOptions = {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath),
+      };
+
+      if (caPath) {
+        httpsOptions.ca = fs.readFileSync(caPath);
+      }
+
+      server = https.createServer(httpsOptions, app);
+      console.log("HTTPS server enabled");
+    } catch (error) {
+      console.error("Failed to read SSL certificate files:", error);
+      process.exit(1);
+    }
+  } else {
+    server = http.createServer(app);
+  }
   const io = new Server(server);
 
   // compute __dirname for ESM
@@ -313,7 +349,8 @@ async function start() {
   });
 
   server.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    const protocol = HTTPS_ENABLED ? "https" : "http";
+    console.log(`Server running on ${protocol}://localhost:${PORT}`);
     console.log(`Rooms: ${ROOMS.join(", ")}`);
   });
 }
