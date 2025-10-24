@@ -47,6 +47,10 @@
     let Device = null;
     let deviceLoadPromise = null;
 
+    // Helper: load mediasoup-client Device, trying local vendor copies first and
+    // falling back to a CDN copy. We attempt both native ES module endpoints and
+    // UMD bundles so the app can recover even if only the minified browser build
+    // is available.
     async function loadDeviceModule() {
       if (Device) return Device;
       if (deviceLoadPromise) return deviceLoadPromise;
