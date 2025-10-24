@@ -63,10 +63,9 @@ async function start() {
     process.exit(1);
   });
 
-  // Add video codec (VP8) in addition to audio/opus
+  // Audio-only rooms (Opus)
   const mediaCodecs = [
     { kind: "audio", mimeType: "audio/opus", clockRate: 48000, channels: 2 },
-    { kind: "video", mimeType: "video/VP8", clockRate: 90000 },
   ];
   const router = await worker.createRouter({ mediaCodecs });
 

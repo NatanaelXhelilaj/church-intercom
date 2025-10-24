@@ -2,37 +2,46 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Church Intercom — Video Rooms</title>
+  <title>Church Intercom — Audio Rooms</title>
   <style>
     body { font-family: sans-serif; margin: 20px; }
     .rooms { margin-bottom: 12px; }
     button { margin: 4px; }
-    video { width: 320px; height: 180px; background: #000; margin: 6px; }
-    #locals { margin-top:10px; }
-    #remotes { margin-top:10px; display:flex; flex-wrap:wrap; }
+    .session-controls { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+    .local-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .peer-list { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+    .peer-card { border: 1px solid #ccc; padding: 8px; border-radius: 6px; min-width: 180px; background: #f9f9f9; }
+    .peer-card .header { font-weight: bold; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .peer-card audio { width: 100%; }
+    .peer-card .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .admin-badge { color: #b26; font-size: 0.85em; }
   </style>
 </head>
 <body>
-  <h3>Church Intercom — 8 Rooms (click to join)</h3>
+  <h3>Church Intercom — 8 Audio Rooms (click to join)</h3>
   <div class="rooms" id="rooms"></div>
-  <div>
+  <div class="session-controls">
+    <label><input type="checkbox" id="adminMode" /> Join as admin</label>
     <button id="leave" disabled>Leave</button>
     <span id="status"></span>
   </div>
 
   <div id="locals">
-    <h4>Local</h4>
-    <video id="localVideo" autoplay muted playsinline></video>
+    <h4>Local Microphone</h4>
+    <div class="local-controls">
+      <span id="micStatus">Disconnected</span>
+      <button id="mute" disabled>Mute Mic</button>
+      <button id="pushToTalk" disabled>Push to Talk</button>
+    </div>
   </div>
 
   <div id="remotes">
-    <h4 style="width:100%;">Remotes</h4>
+    <h4>Participants</h4>
+    <div id="remoteList" class="peer-list"></div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script type="module">
-    // filepath: /Users/natanaelxhelilaj/Documents/Intercom/church-intercom/public/index.html
-
     // do not statically import Device here — a failed import would block the whole module.
     // We'll dynamically load it when actually joining a room.
     let Device = null;
@@ -137,10 +146,12 @@
     const roomsDiv = document.getElementById('rooms');
     const statusEl = document.getElementById('status');
     const leaveBtn = document.getElementById('leave');
-    const localVideo = document.getElementById('localVideo');
-    const remotesDiv = document.getElementById('remotes');
+    const adminToggle = document.getElementById('adminMode');
+    const muteBtn = document.getElementById('mute');
+    const pushToTalkBtn = document.getElementById('pushToTalk');
+    const micStatusEl = document.getElementById('micStatus');
+    const remoteList = document.getElementById('remoteList');
 
-    // create buttons
     for (const r of ROOMS) {
       const btn = document.createElement('button');
       btn.textContent = `Join ${r}`;
@@ -153,15 +164,87 @@
     let sendTransport = null;
     let recvTransport = null;
     let localStream = null;
-    let producedIds = []; // track own producer ids
-    let consuming = {}; // producerId -> consumer
+    let producedIds = [];
+    const consuming = {};
+    let micMuted = false;
+    let pushToTalkActive = false;
+    let isAdmin = false;
+    let disconnectHandler = null;
+    const peersInfo = new Map();
+    const peerCards = new Map();
+    const producerToPeer = new Map();
 
-    function log(s){ console.log(s); statusEl.textContent = s; }
+    function log(s) { console.log(s); statusEl.textContent = s; }
 
     leaveBtn.onclick = () => {
-      if (socket) socket.disconnect();
-      cleanup();
+      cleanup(true);
     };
+
+    muteBtn.addEventListener('click', () => {
+      if (!localStream) return;
+      setMicMuted(!micMuted);
+    });
+
+    function startPushToTalk() {
+      if (!localStream) return;
+      pushToTalkActive = true;
+      applyLocalTrackState();
+      updateMicStatus();
+    }
+
+    function stopPushToTalk() {
+      if (!localStream) return;
+      pushToTalkActive = false;
+      applyLocalTrackState();
+      updateMicStatus();
+    }
+
+    pushToTalkBtn.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      startPushToTalk();
+    });
+    pushToTalkBtn.addEventListener('mouseup', stopPushToTalk);
+    pushToTalkBtn.addEventListener('mouseleave', stopPushToTalk);
+    pushToTalkBtn.addEventListener('touchstart', (ev) => {
+      ev.preventDefault();
+      startPushToTalk();
+    }, { passive: false });
+    pushToTalkBtn.addEventListener('touchend', stopPushToTalk);
+    pushToTalkBtn.addEventListener('touchcancel', stopPushToTalk);
+
+    function applyLocalTrackState() {
+      if (!localStream) return;
+      const tracks = localStream.getAudioTracks();
+      for (const track of tracks) {
+        track.enabled = !micMuted || pushToTalkActive;
+      }
+    }
+
+    function setMicMuted(muted) {
+      micMuted = !!muted;
+      applyLocalTrackState();
+      muteBtn.textContent = micMuted ? 'Unmute Mic' : 'Mute Mic';
+      updateMicStatus();
+    }
+
+    function updateMicStatus() {
+      if (!localStream) {
+        micStatusEl.textContent = 'Disconnected';
+        return;
+      }
+      if (micMuted && pushToTalkActive) {
+        micStatusEl.textContent = 'Push-to-talk (live)';
+      } else if (micMuted) {
+        micStatusEl.textContent = 'Muted';
+      } else {
+        micStatusEl.textContent = 'Live';
+      }
+    }
+
+    function enableMicControls(enabled) {
+      muteBtn.disabled = !enabled;
+      pushToTalkBtn.disabled = !enabled;
+    }
 
     async function joinRoom(room) {
       if (socket) {
@@ -170,7 +253,6 @@
       }
       log('Connecting to room ' + room);
 
-      // dynamically load mediasoup-client Device before connecting
       try {
         const DeviceClass = await loadDeviceModule();
         Device = DeviceClass;
@@ -180,63 +262,89 @@
         return;
       }
 
-      // connect socket with room in query after mediasoup is ready
-      socket = io({ query: { room } });
+      isAdmin = !!adminToggle.checked;
+      adminToggle.disabled = true;
 
-      socket.on('connect_error', (e) => { log('connect_error'); });
-      socket.on('error', (msg) => { alert('Server error: '+msg); });
-      socket.on('kicked', ({ by }) => { alert('You were kicked'); socket.disconnect(); cleanup(); });
-      socket.on('new-producer', ({ producerId }) => {
-        // consume newly created producer
-        consumeProducer(producerId, room).catch(console.error);
+      const query = { room };
+      if (isAdmin) query.admin = '1';
+      socket = io({ query });
+
+      disconnectHandler = () => {
+        cleanup(false);
+      };
+      socket.on('disconnect', disconnectHandler);
+
+      socket.on('connect_error', () => { log('connect_error'); });
+      socket.on('error', (msg) => { alert('Server error: ' + msg); });
+      socket.on('kicked', ({ by }) => {
+        alert('You were kicked');
+        cleanup(true);
       });
+
+      socket.on('peers', (list) => {
+        for (const peer of list || []) {
+          peersInfo.set(peer.id, { admin: !!peer.admin });
+          ensurePeerCard(peer.id);
+        }
+        refreshPeerCards();
+      });
+
+      socket.on('peer-joined', ({ id, admin }) => {
+        peersInfo.set(id, { admin: !!admin });
+        ensurePeerCard(id);
+        log('peer-joined: ' + id);
+        refreshPeerCards();
+      });
+
+      socket.on('peer-left', ({ id }) => {
+        peersInfo.delete(id);
+        removePeerCard(id);
+        log('peer-left: ' + id);
+        refreshPeerCards();
+      });
+
+      socket.on('new-producer', ({ producerId, socketId }) => {
+        consumeProducer(producerId, room, socketId).catch(console.error);
+      });
+
       socket.on('producer-closed', ({ producerId }) => {
         removeRemote(producerId);
       });
-      socket.on('peer-left', ({ id }) => {
-        // server will notify; remote producers will also trigger producer-closed events
-        log('peer-left: '+id);
-      });
 
-      // optional room bookkeeping on server
-      socket.emit('joinRoom', { roomId: room }, (res) => {
-        // ignored
-      });
+      socket.emit('joinRoom', { roomId: room }, () => {});
 
-      // get rtpCapabilities from server
-      const routerRtpCapabilities = await new Promise(resolve => {
+      const routerRtpCapabilities = await new Promise((resolve) => {
         socket.emit('getRtpCapabilities', (cap) => resolve(cap));
       });
 
       device = new Device();
       await device.load({ routerRtpCapabilities });
 
-      // get user media (video + audio)
       try {
         const mediaConstraints = {
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
-          },
-          video: {
-            width: { ideal: 640, max: 640 },
-            height: { ideal: 360, max: 360 },
-            frameRate: { ideal: 15, max: 15 },
+            autoGainControl: true,
           },
         };
         localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-        localVideo.srcObject = localStream;
+        setMicMuted(false);
+        enableMicControls(true);
       } catch (err) {
-        alert('Microphone & camera required');
-        socket.disconnect();
-        socket = null;
+        alert('Microphone required');
+        cleanup(true);
         return;
       }
 
-      // create send transport
-      const sendParams = await new Promise(resolve => {
+      const sendParams = await new Promise((resolve) => {
         socket.emit('createTransport', { roomId: room }, (p) => resolve(p));
       });
+      if (sendParams?.error) {
+        alert('Transport error: ' + sendParams.error);
+        cleanup(true);
+        return;
+      }
       sendTransport = device.createSendTransport(sendParams);
       sendTransport.on('connect', ({ dtlsParameters }, cb, errCb) => {
         socket.emit('connectTransport', { roomId: room, transportId: sendTransport.id, dtlsParameters }, (res) => {
@@ -244,46 +352,35 @@
           cb();
         });
       });
-      sendTransport.on('produce', async ({ kind, rtpParameters }, cb, errCb) => {
+      sendTransport.on('produce', ({ kind, rtpParameters }, cb, errCb) => {
         socket.emit('produce', { roomId: room, transportId: sendTransport.id, kind, rtpParameters }, (res) => {
           if (res && res.error) return errCb(res.error);
-          // store produced id for cleanup
           producedIds.push(res.id);
           cb({ id: res.id });
         });
       });
 
-      // produce both video and audio tracks
-      const tracks = localStream.getTracks();
-      for (const track of tracks) {
+      for (const track of localStream.getAudioTracks()) {
         try {
-          const kind = track.kind;
-          const encodings =
-            kind === 'video'
-              ? [
-                  {
-                    maxBitrate: 600000,
-                    scaleResolutionDownBy: 1,
-                  },
-                ]
-              : undefined;
-          const codecOptions =
-            kind === 'audio'
-              ? {
-                  opusStereo: true,
-                  opusDtx: true,
-                }
-              : undefined;
-          await sendTransport.produce({ track, encodings, codecOptions });
+          const codecOptions = {
+            opusStereo: true,
+            opusDtx: true,
+          };
+          await sendTransport.produce({ track, codecOptions });
         } catch (e) {
           console.warn('produce error', e);
         }
       }
+      applyLocalTrackState();
 
-      // create recv transport
-      const recvParams = await new Promise(resolve => {
+      const recvParams = await new Promise((resolve) => {
         socket.emit('createTransport', { roomId: room }, (p) => resolve(p));
       });
+      if (recvParams?.error) {
+        alert('Transport error: ' + recvParams.error);
+        cleanup(true);
+        return;
+      }
       recvTransport = device.createRecvTransport(recvParams);
       recvTransport.on('connect', ({ dtlsParameters }, cb, errCb) => {
         socket.emit('connectTransport', { roomId: room, transportId: recvTransport.id, dtlsParameters }, (res) => {
@@ -292,49 +389,61 @@
         });
       });
 
-      // fetch existing producers and consume them
-      const existing = await new Promise(resolve => {
-        socket.emit('getProducers', { roomId: room }, (list) => resolve(list));
+      const existing = await new Promise((resolve) => {
+        socket.emit('getProducers', { roomId: room }, (list) => resolve(list || []));
       });
       for (const p of existing) {
-        consumeProducer(p.producerId, room).catch(console.error);
+        consumeProducer(p.producerId, room, p.socketId).catch(console.error);
       }
 
       leaveBtn.disabled = false;
       log('Joined ' + room);
+      refreshPeerCards();
+      updateMicStatus();
     }
 
-    async function consumeProducer(producerId, room) {
-      if (!recvTransport || !device) return;
-      if (consuming[producerId]) return; // already consuming
-      const data = await new Promise(resolve => {
+    async function consumeProducer(producerId, room, ownerId) {
+      if (!recvTransport || !device || !socket) return;
+      if (consuming[producerId]) return;
+
+      const data = await new Promise((resolve) => {
         socket.emit('consume', { roomId: room, producerId, rtpCapabilities: device.rtpCapabilities, transportId: recvTransport.id }, (res) => resolve(res));
       });
-      if (data && data.error) {
-        console.warn('consume error', data.error);
+      if (!data || data.error) {
+        console.warn('consume error', data?.error);
         return;
       }
+
       const consumer = await recvTransport.consume({
         id: data.id,
         producerId: data.producerId,
         kind: data.kind,
-        rtpParameters: data.rtpParameters
+        rtpParameters: data.rtpParameters,
       });
+
       consuming[producerId] = consumer;
+      if (ownerId) producerToPeer.set(producerId, ownerId);
 
       const stream = new MediaStream();
       stream.addTrack(consumer.track);
 
-      let el = document.getElementById('video-'+producerId);
-      if (!el) {
-        el = document.createElement('video');
-        el.id = 'video-'+producerId;
-        el.autoplay = true;
-        el.playsInline = true;
-        el.controls = false;
-        remotesDiv.appendChild(el);
+      let record = null;
+      if (ownerId) {
+        record = ensurePeerCard(ownerId);
       }
-      el.srcObject = stream;
+      if (!record && producerToPeer.has(producerId)) {
+        record = peerCards.get(producerToPeer.get(producerId));
+      }
+      if (record) {
+        record.audio.srcObject = stream;
+        record.stream = stream;
+        if (record.muted && !record.pushHeld) {
+          record.audio.muted = true;
+        } else {
+          record.audio.muted = false;
+        }
+        record.audio.play().catch(() => {});
+      }
 
       consumer.on('producerclose', () => {
         removeRemote(producerId);
@@ -345,31 +454,258 @@
     }
 
     function removeRemote(producerId) {
-      try {
-        const el = document.getElementById('video-'+producerId);
-        if (el) el.remove();
-        const c = consuming[producerId];
-        if (c) {
-          try { c.close(); } catch(e){}
-          delete consuming[producerId];
+      const consumer = consuming[producerId];
+      if (consumer) {
+        try { consumer.close(); } catch (e) {}
+        delete consuming[producerId];
+      }
+      const peerId = producerToPeer.get(producerId);
+      if (peerId) {
+        producerToPeer.delete(producerId);
+        const record = peerCards.get(peerId);
+        if (record) {
+          if (record.stream) {
+            try { record.stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+            record.stream = null;
+          }
+          if (record.audio) {
+            record.audio.srcObject = null;
+          }
         }
-      } catch(e){ console.warn(e); }
+      }
     }
 
-    function cleanup() {
-      if (sendTransport) try { sendTransport.close(); } catch(e){}
-      if (recvTransport) try { recvTransport.close(); } catch(e){}
+    function createPeerCard(peerId) {
+      const card = document.createElement('div');
+      card.className = 'peer-card';
+      card.dataset.peerId = peerId;
+
+      const header = document.createElement('div');
+      header.className = 'header';
+      const name = document.createElement('span');
+      name.textContent = peerId;
+      const badge = document.createElement('span');
+      badge.className = 'admin-badge';
+      header.appendChild(name);
+      header.appendChild(badge);
+      card.appendChild(header);
+
+      const audio = document.createElement('audio');
+      audio.autoplay = true;
+      audio.controls = false;
+      audio.playsInline = true;
+      card.appendChild(audio);
+
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+
+      const muteButton = document.createElement('button');
+      muteButton.textContent = 'Mute';
+      actions.appendChild(muteButton);
+
+      const pushButton = document.createElement('button');
+      pushButton.textContent = 'Push to Talk';
+      actions.appendChild(pushButton);
+
+      card.appendChild(actions);
+
+      const record = {
+        peerId,
+        card,
+        nameEl: name,
+        adminBadge: badge,
+        audio,
+        actions,
+        muteButton,
+        pushButton,
+        kickBtn: null,
+        muted: false,
+        pushHeld: false,
+        stream: null,
+        setMuted: null,
+      };
+
+      function setMuted(state) {
+        record.muted = state;
+        if (!record.pushHeld) {
+          audio.muted = state;
+        }
+        muteButton.textContent = state ? 'Unmute' : 'Mute';
+      }
+
+      function pushStart(ev) {
+        if (ev) ev.preventDefault();
+        record.pushHeld = true;
+        audio.muted = false;
+      }
+
+      function pushEnd() {
+        record.pushHeld = false;
+        if (record.muted) {
+          audio.muted = true;
+        }
+      }
+
+      muteButton.addEventListener('click', () => {
+        setMuted(!record.muted);
+      });
+
+      pushButton.addEventListener('mousedown', pushStart);
+      pushButton.addEventListener('mouseup', pushEnd);
+      pushButton.addEventListener('mouseleave', pushEnd);
+      pushButton.addEventListener('touchstart', (ev) => {
+        pushStart(ev);
+      }, { passive: false });
+      pushButton.addEventListener('touchend', () => pushEnd());
+      pushButton.addEventListener('touchcancel', () => pushEnd());
+
+      record.setMuted = setMuted;
+
+      return record;
+    }
+
+    function ensurePeerCard(peerId) {
+      if (!peerId || peerId === socket?.id) return null;
+      let record = peerCards.get(peerId);
+      if (!record) {
+        record = createPeerCard(peerId);
+        peerCards.set(peerId, record);
+        remoteList.appendChild(record.card);
+      }
+      const meta = peersInfo.get(peerId);
+      record.adminBadge.textContent = meta?.admin ? 'admin' : '';
+      updateKickButton(record);
+      return record;
+    }
+
+    function updateKickButton(record) {
+      if (!record) return;
+      if (!isAdmin) {
+        if (record.kickBtn) {
+          record.kickBtn.remove();
+          record.kickBtn = null;
+        }
+        return;
+      }
+      if (record.kickBtn) return;
+      const btn = document.createElement('button');
+      btn.textContent = 'Kick';
+      btn.addEventListener('click', () => {
+        if (!socket) return;
+        socket.emit('kick', { targetId: record.peerId });
+      });
+      record.actions.appendChild(btn);
+      record.kickBtn = btn;
+    }
+
+    function refreshPeerCards() {
+      for (const record of peerCards.values()) {
+        const meta = peersInfo.get(record.peerId);
+        record.adminBadge.textContent = meta?.admin ? 'admin' : '';
+        if (record.muted && !record.pushHeld) {
+          record.audio.muted = true;
+        }
+        if (!record.muted) {
+          record.audio.muted = false;
+        }
+        if (isAdmin) {
+          updateKickButton(record);
+        } else if (record.kickBtn) {
+          record.kickBtn.remove();
+          record.kickBtn = null;
+        }
+      }
+    }
+
+    function removePeerCard(peerId) {
+      const record = peerCards.get(peerId);
+      if (!record) return;
+      if (record.stream) {
+        try { record.stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+      }
+      if (record.audio) {
+        record.audio.srcObject = null;
+      }
+      if (record.card.parentElement) {
+        record.card.parentElement.removeChild(record.card);
+      }
+      peerCards.delete(peerId);
+
+      for (const [producerId, ownerId] of Array.from(producerToPeer.entries())) {
+        if (ownerId === peerId) {
+          producerToPeer.delete(producerId);
+          const consumer = consuming[producerId];
+          if (consumer) {
+            try { consumer.close(); } catch (e) {}
+            delete consuming[producerId];
+          }
+        }
+      }
+    }
+
+    function cleanup(forceDisconnect = false) {
+      const currentSocket = socket;
+      if (currentSocket) {
+        if (disconnectHandler) {
+          currentSocket.off('disconnect', disconnectHandler);
+        }
+        if (forceDisconnect) {
+          try { currentSocket.disconnect(); } catch (e) {}
+        }
+      }
+      socket = null;
+      disconnectHandler = null;
+
+      if (sendTransport) {
+        try { sendTransport.close(); } catch (e) {}
+      }
+      if (recvTransport) {
+        try { recvTransport.close(); } catch (e) {}
+      }
+      sendTransport = null;
+      recvTransport = null;
+
+      for (const consumer of Object.values(consuming)) {
+        try { consumer.close(); } catch (e) {}
+      }
+      for (const key of Object.keys(consuming)) {
+        delete consuming[key];
+      }
+
+      for (const record of peerCards.values()) {
+        if (record.stream) {
+          try { record.stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+        }
+        if (record.audio) {
+          record.audio.srcObject = null;
+        }
+        record.card.remove();
+      }
+      peerCards.clear();
+      peersInfo.clear();
+      producerToPeer.clear();
+      remoteList.innerHTML = '';
+
       if (localStream) {
-        for (const t of localStream.getTracks()) t.stop();
+        for (const track of localStream.getTracks()) {
+          try { track.stop(); } catch (e) {}
+        }
         localStream = null;
       }
+
       producedIds = [];
-      consuming = {};
+      micMuted = false;
+      pushToTalkActive = false;
+      isAdmin = false;
+      enableMicControls(false);
+      muteBtn.textContent = 'Mute Mic';
+      updateMicStatus();
+
       device = null;
-      socket = null;
-      localVideo.srcObject = null;
-      remotesDiv.innerHTML = '<h4 style="width:100%;">Remotes</h4>';
+
       leaveBtn.disabled = true;
+      adminToggle.disabled = false;
+
       log('Left');
     }
   </script>
