@@ -1,0 +1,282 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Church Intercom — Video Rooms</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    .rooms { margin-bottom: 12px; }
+    button { margin: 4px; }
+    video { width: 320px; height: 180px; background: #000; margin: 6px; }
+    #locals { margin-top:10px; }
+    #remotes { margin-top:10px; display:flex; flex-wrap:wrap; }
+  </style>
+</head>
+<body>
+  <h3>Church Intercom — 8 Rooms (click to join)</h3>
+  <div class="rooms" id="rooms"></div>
+  <div>
+    <button id="leave" disabled>Leave</button>
+    <span id="status"></span>
+  </div>
+
+  <div id="locals">
+    <h4>Local</h4>
+    <video id="localVideo" autoplay muted playsinline></video>
+  </div>
+
+  <div id="remotes">
+    <h4 style="width:100%;">Remotes</h4>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module">
+    // filepath: /Users/natanaelxhelilaj/Documents/Intercom/church-intercom/public/index.html
+
+    // do not statically import Device here — a failed import would block the whole module.
+    // We'll dynamically load it when actually joining a room.
+    let Device = null;
+
+    // Helper: load local mediasoup-client vendor module and expose Device
+    async function loadDeviceModule() {
+      if (Device) return Device;
+      return new Promise((resolve, reject) => {
+        // import from the server-provided vendor path
+        const code = "import { Device as D } from '/vendor/mediasoup-client.js'; window.__msDevice = D;";
+        const blob = new Blob([code], { type: 'text/javascript' });
+        const url = URL.createObjectURL(blob);
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = url;
+        script.onload = () => {
+          URL.revokeObjectURL(url);
+          if (window.__msDevice) {
+            Device = window.__msDevice;
+            delete window.__msDevice;
+            resolve(Device);
+          } else {
+            reject(new Error('mediasoup-client loaded but did not expose Device'));
+          }
+        };
+        script.onerror = (e) => {
+          URL.revokeObjectURL(url);
+          reject(new Error('Failed to load mediasoup-client module'));
+        };
+        document.head.appendChild(script);
+      });
+    }
+
+    const ROOMS = ['room1','room2','room3','room4','room5','room6','room7','room8'];
+    const roomsDiv = document.getElementById('rooms');
+    const statusEl = document.getElementById('status');
+    const leaveBtn = document.getElementById('leave');
+    const localVideo = document.getElementById('localVideo');
+    const remotesDiv = document.getElementById('remotes');
+
+    // create buttons
+    for (const r of ROOMS) {
+      const btn = document.createElement('button');
+      btn.textContent = `Join ${r}`;
+      btn.onclick = () => joinRoom(r);
+      roomsDiv.appendChild(btn);
+    }
+
+    let socket = null;
+    let device = null;
+    let sendTransport = null;
+    let recvTransport = null;
+    let localStream = null;
+    let producedIds = []; // track own producer ids
+    let consuming = {}; // producerId -> consumer
+
+    function log(s){ console.log(s); statusEl.textContent = s; }
+
+    leaveBtn.onclick = () => {
+      if (socket) socket.disconnect();
+      cleanup();
+    };
+
+    async function joinRoom(room) {
+      if (socket) {
+        alert('Already connected. Leave first.');
+        return;
+      }
+      log('Connecting to room ' + room);
+      // connect socket with room in query
+      socket = io({ query: { room } });
+
+      // dynamically load mediasoup-client Device via module script helper
+      try {
+        await loadDeviceModule();
+      } catch (err) {
+        console.error('Failed to load mediasoup-client:', err);
+        alert('Failed to load mediasoup client. Check console for details.');
+        socket.disconnect();
+        socket = null;
+        return;
+      }
+
+      socket.on('connect_error', (e) => { log('connect_error'); });
+      socket.on('error', (msg) => { alert('Server error: '+msg); });
+      socket.on('kicked', ({ by }) => { alert('You were kicked'); socket.disconnect(); cleanup(); });
+      socket.on('new-producer', ({ producerId }) => {
+        // consume newly created producer
+        consumeProducer(producerId, room).catch(console.error);
+      });
+      socket.on('producer-closed', ({ producerId }) => {
+        removeRemote(producerId);
+      });
+      socket.on('peer-left', ({ id }) => {
+        // server will notify; remote producers will also trigger producer-closed events
+        log('peer-left: '+id);
+      });
+
+      // optional room bookkeeping on server
+      socket.emit('joinRoom', { roomId: room }, (res) => {
+        // ignored
+      });
+
+      // get rtpCapabilities from server
+      const routerRtpCapabilities = await new Promise(resolve => {
+        socket.emit('getRtpCapabilities', (cap) => resolve(cap));
+      });
+
+      device = new Device();
+      await device.load({ routerRtpCapabilities });
+
+      // get user media (video + audio)
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        localVideo.srcObject = localStream;
+      } catch (err) {
+        alert('Microphone & camera required');
+        socket.disconnect();
+        socket = null;
+        return;
+      }
+
+      // create send transport
+      const sendParams = await new Promise(resolve => {
+        socket.emit('createTransport', { roomId: room }, (p) => resolve(p));
+      });
+      sendTransport = device.createSendTransport(sendParams);
+      sendTransport.on('connect', ({ dtlsParameters }, cb, errCb) => {
+        socket.emit('connectTransport', { roomId: room, transportId: sendTransport.id, dtlsParameters }, (res) => {
+          if (res && res.error) return errCb(res.error);
+          cb();
+        });
+      });
+      sendTransport.on('produce', async ({ kind, rtpParameters }, cb, errCb) => {
+        socket.emit('produce', { roomId: room, transportId: sendTransport.id, kind, rtpParameters }, (res) => {
+          if (res && res.error) return errCb(res.error);
+          // store produced id for cleanup
+          producedIds.push(res.id);
+          cb({ id: res.id });
+        });
+      });
+
+      // produce both video and audio tracks
+      const tracks = localStream.getTracks();
+      for (const track of tracks) {
+        try {
+          await sendTransport.produce({ track });
+        } catch (e) {
+          console.warn('produce error', e);
+        }
+      }
+
+      // create recv transport
+      const recvParams = await new Promise(resolve => {
+        socket.emit('createTransport', { roomId: room }, (p) => resolve(p));
+      });
+      recvTransport = device.createRecvTransport(recvParams);
+      recvTransport.on('connect', ({ dtlsParameters }, cb, errCb) => {
+        socket.emit('connectTransport', { roomId: room, transportId: recvTransport.id, dtlsParameters }, (res) => {
+          if (res && res.error) return errCb(res.error);
+          cb();
+        });
+      });
+
+      // fetch existing producers and consume them
+      const existing = await new Promise(resolve => {
+        socket.emit('getProducers', { roomId: room }, (list) => resolve(list));
+      });
+      for (const p of existing) {
+        consumeProducer(p.producerId, room).catch(console.error);
+      }
+
+      leaveBtn.disabled = false;
+      log('Joined ' + room);
+    }
+
+    async function consumeProducer(producerId, room) {
+      if (!recvTransport || !device) return;
+      if (consuming[producerId]) return; // already consuming
+      const data = await new Promise(resolve => {
+        socket.emit('consume', { roomId: room, producerId, rtpCapabilities: device.rtpCapabilities, transportId: recvTransport.id }, (res) => resolve(res));
+      });
+      if (data && data.error) {
+        console.warn('consume error', data.error);
+        return;
+      }
+      const consumer = await recvTransport.consume({
+        id: data.id,
+        producerId: data.producerId,
+        kind: data.kind,
+        rtpParameters: data.rtpParameters
+      });
+      consuming[producerId] = consumer;
+
+      const stream = new MediaStream();
+      stream.addTrack(consumer.track);
+
+      let el = document.getElementById('video-'+producerId);
+      if (!el) {
+        el = document.createElement('video');
+        el.id = 'video-'+producerId;
+        el.autoplay = true;
+        el.playsInline = true;
+        el.controls = false;
+        remotesDiv.appendChild(el);
+      }
+      el.srcObject = stream;
+
+      consumer.on('producerclose', () => {
+        removeRemote(producerId);
+      });
+      consumer.on('transportclose', () => {
+        removeRemote(producerId);
+      });
+    }
+
+    function removeRemote(producerId) {
+      try {
+        const el = document.getElementById('video-'+producerId);
+        if (el) el.remove();
+        const c = consuming[producerId];
+        if (c) {
+          try { c.close(); } catch(e){}
+          delete consuming[producerId];
+        }
+      } catch(e){ console.warn(e); }
+    }
+
+    function cleanup() {
+      if (sendTransport) try { sendTransport.close(); } catch(e){}
+      if (recvTransport) try { recvTransport.close(); } catch(e){}
+      if (localStream) {
+        for (const t of localStream.getTracks()) t.stop();
+        localStream = null;
+      }
+      producedIds = [];
+      consuming = {};
+      device = null;
+      socket = null;
+      localVideo.srcObject = null;
+      remotesDiv.innerHTML = '<h4 style="width:100%;">Remotes</h4>';
+      leaveBtn.disabled = true;
+      log('Left');
+    }
+  </script>
+</body>
+</html>
