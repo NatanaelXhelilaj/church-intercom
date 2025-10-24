@@ -570,6 +570,7 @@
     const consuming = {};
     let micMuted = false;
     let pushToTalkActive = false;
+    let headsetPressActive = false;
     let isAdmin = false;
     let displayName = '';
     let joiningRoom = false;
@@ -638,6 +639,48 @@
     pushToTalkBtn.addEventListener('touchend', stopPushToTalk);
     pushToTalkBtn.addEventListener('touchcancel', stopPushToTalk);
 
+    const HEADSET_KEY_CODES = new Set(['HeadsetHook', 'MediaPlayPause']);
+
+    function isHeadsetButtonEvent(ev) {
+      if (!ev) return false;
+      if (HEADSET_KEY_CODES.has(ev.code) || HEADSET_KEY_CODES.has(ev.key)) return true;
+      if (typeof ev.keyCode === 'number' && ev.keyCode === 179) return true;
+      return false;
+    }
+
+    function headsetButtonAvailable() {
+      return !!pushToTalkBtn && !pushToTalkBtn.disabled;
+    }
+
+    function headsetKeyDown(ev) {
+      if (!headsetButtonAvailable()) return;
+      if (!isHeadsetButtonEvent(ev)) return;
+      if (ev.repeat) {
+        ev.preventDefault();
+        return;
+      }
+      ev.preventDefault();
+      headsetPressActive = true;
+      startPushToTalk();
+    }
+
+    function headsetKeyUp(ev) {
+      if (!headsetPressActive) return;
+      if (!isHeadsetButtonEvent(ev)) return;
+      headsetPressActive = false;
+      ev.preventDefault();
+      stopPushToTalk();
+    }
+
+    document.addEventListener('keydown', headsetKeyDown, { passive: false });
+    document.addEventListener('keyup', headsetKeyUp, { passive: false });
+
+    window.addEventListener('blur', () => {
+      if (!headsetPressActive) return;
+      headsetPressActive = false;
+      stopPushToTalk();
+    });
+
     function applyLocalTrackState() {
       if (!localStream) return;
       const tracks = localStream.getAudioTracks();
@@ -676,6 +719,10 @@
     function enableMicControls(enabled) {
       muteBtn.disabled = !enabled;
       pushToTalkBtn.disabled = !enabled;
+      if (!enabled && headsetPressActive) {
+        headsetPressActive = false;
+        stopPushToTalk();
+      }
     }
 
     async function joinRoom(room) {
