@@ -34,6 +34,10 @@
       padding: 32px 16px 48px;
     }
 
+    body.modal-open {
+      overflow: hidden;
+    }
+
     .app-shell {
       width: min(960px, 100%);
       display: flex;
@@ -98,12 +102,20 @@
       gap: 8px;
     }
 
+    .room-picker {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
+
     .field-label {
       font-weight: 600;
       font-size: 0.9rem;
     }
 
-    input[type="text"] {
+    input[type="text"],
+    select {
       width: 100%;
       padding: 12px 14px;
       border-radius: 12px;
@@ -113,7 +125,8 @@
       background: var(--surface-strong);
     }
 
-    input[type="text"]:focus-visible {
+    input[type="text"]:focus-visible,
+    select:focus-visible {
       outline: none;
       border-color: var(--primary);
       box-shadow: 0 0 0 3px var(--primary-soft);
@@ -326,6 +339,66 @@
       box-shadow: none;
     }
 
+    .hidden {
+      display: none !important;
+    }
+
+    .device-selectors {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    .device-selectors.active {
+      display: flex;
+    }
+
+    .device-selectors .field-group {
+      margin: 0;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(15, 23, 42, 0.45);
+      backdrop-filter: blur(6px);
+      z-index: 1000;
+    }
+
+    .modal-backdrop.active {
+      display: flex;
+    }
+
+    .modal-panel {
+      width: min(520px, 100%);
+      border-radius: 18px;
+      overflow: hidden;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .modal-header h2 {
+      margin: 0;
+      font-size: 1.1rem;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 16px;
+    }
+
     @media (max-width: 720px) {
       body {
         padding: 24px 12px 36px;
@@ -406,7 +479,21 @@
           placeholder="e.g. Sarah Johnson"
         />
       </div>
-      <div id="rooms" aria-label="Available rooms"></div>
+      <div class="field-group">
+        <span class="field-label">Room</span>
+        <div class="room-picker">
+          <button
+            id="openRoomModal"
+            type="button"
+            class="secondary"
+            aria-haspopup="dialog"
+            aria-controls="roomModal"
+          >
+            Pick a room
+          </button>
+          <span id="selectedRoomLabel" class="subtle">No room selected yet</span>
+        </div>
+      </div>
       <div class="session-controls">
         <label class="toggle"><input type="checkbox" id="adminMode" /> Join as admin</label>
         <button id="leave" class="secondary" disabled>Leave room</button>
@@ -426,15 +513,44 @@
         <button id="mute" disabled>Mute Mic</button>
         <button id="pushToTalk" disabled>Push to Talk</button>
       </div>
+      <div id="deviceSelectors" class="device-selectors">
+        <div class="field-group">
+          <label class="field-label" for="inputDeviceSelect">Input device</label>
+          <select id="inputDeviceSelect"></select>
+        </div>
+        <div class="field-group" id="outputSelectorGroup">
+          <label class="field-label" for="outputDeviceSelect">Output device</label>
+          <select id="outputDeviceSelect"></select>
+        </div>
+        <span id="outputSupportNote" class="subtle hidden">Selecting an output device isn't supported in this browser.</span>
+      </div>
     </section>
 
-    <section id="remotes" class="panel participants-panel">
+    <section id="remotes" class="panel participants-panel hidden">
       <div class="panel-header">
         <h2>Participants</h2>
         <span class="subtle">Everyone else in your room will appear here.</span>
       </div>
       <div id="remoteList" class="peer-list" role="list"></div>
     </section>
+  </div>
+
+  <div
+    id="roomModal"
+    class="modal-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-hidden="true"
+    aria-labelledby="roomModalTitle"
+  >
+    <div class="panel modal-panel">
+      <div class="modal-header">
+        <h2 id="roomModalTitle">Pick a room</h2>
+        <button id="closeRoomModal" type="button" class="secondary">Close</button>
+      </div>
+      <p class="subtle" id="roomModalDescription">Choose a room to join. You'll connect immediately after selecting.</p>
+      <div id="rooms" aria-describedby="roomModalDescription" aria-label="Available rooms"></div>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -555,6 +671,10 @@
       ['bashkepunetoret', 'bashkepunetoret'],
     ]);
     const roomsDiv = document.getElementById('rooms');
+    const openRoomModalBtn = document.getElementById('openRoomModal');
+    const closeRoomModalBtn = document.getElementById('closeRoomModal');
+    const roomModal = document.getElementById('roomModal');
+    const selectedRoomLabel = document.getElementById('selectedRoomLabel');
     const statusEl = document.getElementById('status');
     const leaveBtn = document.getElementById('leave');
     const adminToggle = document.getElementById('adminMode');
@@ -564,6 +684,21 @@
     const remoteList = document.getElementById('remoteList');
     const nameInput = document.getElementById('displayName');
     const localNameEl = document.getElementById('localName');
+    const isDesktopClient = !/Android|webOS|iPhone|iPad|iPod|BlackBerry|Windows Phone/i.test(navigator.userAgent || '');
+    const canSelectOutputDevice =
+      typeof HTMLMediaElement !== 'undefined' && typeof HTMLMediaElement.prototype.setSinkId === 'function';
+    const audioElements = new Set();
+    const activeProducers = new Set();
+    let preferredInputDeviceId = '';
+    let preferredOutputDeviceId = '';
+    let lastFocusedBeforeModal = null;
+    let deviceRefreshPromise = null;
+    const deviceSelectors = document.getElementById('deviceSelectors');
+    const inputDeviceSelect = document.getElementById('inputDeviceSelect');
+    const outputDeviceSelect = document.getElementById('outputDeviceSelect');
+    const outputSelectorGroup = document.getElementById('outputSelectorGroup');
+    const outputSupportNote = document.getElementById('outputSupportNote');
+    const participantsPanel = document.querySelector('.participants-panel');
 
     function roomLabel(roomId) {
       if (ROOM_LABELS.has(roomId)) {
@@ -576,15 +711,76 @@
       return roomId || 'Room';
     }
 
+    function updateSelectedRoom(roomId) {
+      if (selectedRoomLabel) {
+        selectedRoomLabel.textContent = roomId ? `Selected: ${roomLabel(roomId)}` : 'No room selected yet';
+      }
+    }
+
+    function isRoomModalOpen() {
+      return !!roomModal && roomModal.classList.contains('active');
+    }
+
+    function openRoomModal() {
+      if (!roomModal || isRoomModalOpen()) return;
+      lastFocusedBeforeModal = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      roomModal.classList.add('active');
+      roomModal.setAttribute('aria-hidden', 'false');
+      document.body?.classList.add('modal-open');
+      const firstButton = roomsDiv?.querySelector('button:not(:disabled)');
+      if (firstButton) {
+        setTimeout(() => firstButton.focus(), 0);
+      }
+    }
+
+    function closeRoomModal() {
+      if (!roomModal || !isRoomModalOpen()) return;
+      roomModal.classList.remove('active');
+      roomModal.setAttribute('aria-hidden', 'true');
+      document.body?.classList.remove('modal-open');
+      if (lastFocusedBeforeModal && typeof lastFocusedBeforeModal.focus === 'function') {
+        lastFocusedBeforeModal.focus();
+      }
+    }
+
     for (const r of ROOMS) {
       const btn = document.createElement('button');
       btn.type = 'button';
       const prettyRoom = roomLabel(r);
       btn.textContent = `Join ${prettyRoom}`;
       btn.setAttribute('aria-label', `Join ${prettyRoom}`);
-      btn.onclick = () => joinRoom(r);
+      btn.onclick = () => {
+        updateSelectedRoom(r);
+        closeRoomModal();
+        joinRoom(r);
+      };
       roomsDiv.appendChild(btn);
     }
+
+    updateSelectedRoom(null);
+
+    if (openRoomModalBtn) {
+      openRoomModalBtn.addEventListener('click', () => {
+        if (openRoomModalBtn.disabled) return;
+        openRoomModal();
+      });
+    }
+
+    if (closeRoomModalBtn) {
+      closeRoomModalBtn.addEventListener('click', () => closeRoomModal());
+    }
+
+    roomModal?.addEventListener('click', (ev) => {
+      if (ev.target === roomModal) {
+        closeRoomModal();
+      }
+    });
+
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && isRoomModalOpen()) {
+        closeRoomModal();
+      }
+    });
 
     let socket = null;
     let device = null;
@@ -604,6 +800,32 @@
     const peerCards = new Map();
     const producerToPeer = new Map();
 
+    function shouldShowDeviceSelectors() {
+      return isDesktopClient && isAdmin && !!socket;
+    }
+
+    function updateDeviceSelectorsVisibility() {
+      if (!deviceSelectors) return;
+      const show = shouldShowDeviceSelectors();
+      deviceSelectors.classList.toggle('active', show);
+      if (!show) {
+        return;
+      }
+      if (outputSelectorGroup) {
+        outputSelectorGroup.classList.toggle('hidden', !canSelectOutputDevice);
+      }
+      if (outputSupportNote) {
+        outputSupportNote.classList.toggle('hidden', canSelectOutputDevice);
+      }
+      refreshDeviceOptions();
+    }
+
+    function updateParticipantsVisibility() {
+      if (!participantsPanel) return;
+      const shouldShow = socket ? isAdmin : !!adminToggle?.checked;
+      participantsPanel.classList.toggle('hidden', !shouldShow);
+    }
+
     function summarizeId(id) {
       if (!id) return '';
       const str = String(id);
@@ -622,15 +844,195 @@
 
     function log(s) { console.log(s); statusEl.textContent = s; }
 
+    function applyOutputDeviceToElement(element) {
+      if (!canSelectOutputDevice || !element || typeof element.setSinkId !== 'function') return;
+      const targetId = preferredOutputDeviceId || 'default';
+      element.setSinkId(targetId).catch((err) => {
+        console.warn('Failed to set output device', err);
+      });
+    }
+
+    function applyOutputDeviceToAll() {
+      if (!canSelectOutputDevice) return;
+      for (const element of audioElements) {
+        applyOutputDeviceToElement(element);
+      }
+    }
+
+    function registerAudioElement(element) {
+      if (!element) return;
+      audioElements.add(element);
+      if (canSelectOutputDevice) {
+        applyOutputDeviceToElement(element);
+      }
+    }
+
+    function unregisterAudioElement(element) {
+      if (!element) return;
+      audioElements.delete(element);
+    }
+
+    async function switchInputDevice(deviceId) {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Media devices API unavailable');
+      }
+      const audioConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      };
+      if (deviceId) {
+        audioConstraints.deviceId = { exact: deviceId };
+      }
+      let newStream;
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+      } catch (err) {
+        throw err;
+      }
+      const [newTrack] = newStream.getAudioTracks();
+      if (!newTrack) {
+        for (const track of newStream.getTracks()) {
+          try { track.stop(); } catch (e) {}
+        }
+        throw new Error('No audio track available for the selected device');
+      }
+      const oldStream = localStream;
+      localStream = newStream;
+      const settings = typeof newTrack.getSettings === 'function' ? newTrack.getSettings() : null;
+      preferredInputDeviceId = settings?.deviceId || deviceId || '';
+      applyLocalTrackState();
+      updateMicStatus();
+      const producers = Array.from(activeProducers);
+      for (let i = 0; i < producers.length; i++) {
+        const producer = producers[i];
+        const trackForProducer = i === 0 ? newTrack : newTrack.clone();
+        try {
+          await producer.replaceTrack({ track: trackForProducer });
+        } catch (err) {
+          console.warn('Failed to replace track for producer', err);
+        }
+      }
+      if (oldStream) {
+        for (const track of oldStream.getTracks()) {
+          try { track.stop(); } catch (e) {}
+        }
+      }
+      refreshDeviceOptions();
+    }
+
+    async function refreshDeviceOptions() {
+      if (!deviceSelectors || !shouldShowDeviceSelectors()) {
+        return;
+      }
+      if (!navigator.mediaDevices?.enumerateDevices) {
+        return;
+      }
+      if (deviceRefreshPromise) {
+        return deviceRefreshPromise;
+      }
+      deviceRefreshPromise = (async () => {
+        let devices;
+        try {
+          devices = await navigator.mediaDevices.enumerateDevices();
+        } catch (err) {
+          console.warn('Failed to enumerate devices', err);
+          return;
+        }
+        const inputs = devices.filter((d) => d.kind === 'audioinput');
+        const outputs = devices.filter((d) => d.kind === 'audiooutput');
+        if (inputDeviceSelect) {
+          inputDeviceSelect.innerHTML = '';
+          const defaultOption = document.createElement('option');
+          defaultOption.value = '';
+          defaultOption.textContent = 'System default';
+          inputDeviceSelect.appendChild(defaultOption);
+          inputs.forEach((device, index) => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.textContent = device.label || `Microphone ${index + 1}`;
+            inputDeviceSelect.appendChild(option);
+          });
+          const currentTracks =
+            localStream && typeof localStream.getAudioTracks === 'function'
+              ? localStream.getAudioTracks()
+              : [];
+          const currentTrack = currentTracks[0];
+          const trackDeviceId =
+            currentTrack && typeof currentTrack.getSettings === 'function'
+              ? currentTrack.getSettings().deviceId
+              : '';
+          let targetInputId = preferredInputDeviceId || trackDeviceId || '';
+          const hasTarget = targetInputId && Array.from(inputDeviceSelect.options).some((o) => o.value === targetInputId);
+          if (hasTarget) {
+            inputDeviceSelect.value = targetInputId;
+          } else {
+            inputDeviceSelect.value = '';
+            if (targetInputId) {
+              preferredInputDeviceId = '';
+            }
+          }
+        }
+        if (outputSelectorGroup) {
+          outputSelectorGroup.classList.toggle('hidden', !canSelectOutputDevice);
+        }
+        if (outputSupportNote) {
+          outputSupportNote.classList.toggle('hidden', canSelectOutputDevice);
+        }
+        if (canSelectOutputDevice && outputDeviceSelect) {
+          outputDeviceSelect.innerHTML = '';
+          const defaultOption = document.createElement('option');
+          defaultOption.value = '';
+          defaultOption.textContent = 'System default';
+          outputDeviceSelect.appendChild(defaultOption);
+          outputs.forEach((device, index) => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.textContent = device.label || `Speaker ${index + 1}`;
+            outputDeviceSelect.appendChild(option);
+          });
+          const hasPreferredOutput =
+            preferredOutputDeviceId && Array.from(outputDeviceSelect.options).some((o) => o.value === preferredOutputDeviceId);
+          if (hasPreferredOutput) {
+            outputDeviceSelect.value = preferredOutputDeviceId;
+          } else {
+            outputDeviceSelect.value = '';
+            if (preferredOutputDeviceId) {
+              preferredOutputDeviceId = '';
+            }
+          }
+          applyOutputDeviceToAll();
+        }
+      })().finally(() => {
+        deviceRefreshPromise = null;
+      });
+      return deviceRefreshPromise;
+    }
+
     function setRoomButtonsDisabled(state) {
       for (const btn of roomsDiv.querySelectorAll('button')) {
         btn.disabled = state;
       }
+      if (openRoomModalBtn) {
+        openRoomModalBtn.disabled = state;
+      }
+      if (state) {
+        closeRoomModal();
+      }
     }
+
+    updateParticipantsVisibility();
+    updateDeviceSelectorsVisibility();
 
     leaveBtn.onclick = () => {
       cleanup(true);
     };
+
+    adminToggle?.addEventListener('change', () => {
+      if (socket) return;
+      updateParticipantsVisibility();
+      updateDeviceSelectorsVisibility();
+    });
 
     muteBtn.addEventListener('click', () => {
       if (!localStream) return;
@@ -722,6 +1124,45 @@
       }
     }
 
+    if (inputDeviceSelect) {
+      inputDeviceSelect.addEventListener('change', async () => {
+        const newId = inputDeviceSelect.value || '';
+        const previousId = preferredInputDeviceId;
+        preferredInputDeviceId = newId;
+        if (!shouldShowDeviceSelectors()) {
+          return;
+        }
+        try {
+          await switchInputDevice(newId);
+        } catch (err) {
+          console.warn('Failed to switch input device', err);
+          preferredInputDeviceId = previousId;
+          await refreshDeviceOptions();
+          alert('Unable to switch microphone. Check device permissions and try again.');
+        }
+      });
+    }
+
+    if (outputDeviceSelect) {
+      outputDeviceSelect.addEventListener('change', () => {
+        preferredOutputDeviceId = outputDeviceSelect.value || '';
+        if (canSelectOutputDevice) {
+          applyOutputDeviceToAll();
+        }
+      });
+    }
+
+    if (navigator.mediaDevices) {
+      const handleDeviceChange = () => {
+        refreshDeviceOptions();
+      };
+      if (typeof navigator.mediaDevices.addEventListener === 'function') {
+        navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+      } else {
+        navigator.mediaDevices.ondevicechange = handleDeviceChange;
+      }
+    }
+
     function setMicMuted(muted) {
       micMuted = !!muted;
       applyLocalTrackState();
@@ -796,10 +1237,13 @@
       isAdmin = !!adminToggle.checked;
       adminToggle.disabled = true;
       nameInput.disabled = true;
+      updateParticipantsVisibility();
+      updateDeviceSelectorsVisibility();
 
       const query = { room, name: displayName };
       if (isAdmin) query.admin = '1';
       socket = io({ query });
+      updateDeviceSelectorsVisibility();
 
       disconnectHandler = () => {
         cleanup(false);
@@ -856,14 +1300,23 @@
       await device.load({ routerRtpCapabilities });
 
       try {
-        const mediaConstraints = {
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
+        const audioConstraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
         };
+        if (preferredInputDeviceId) {
+          audioConstraints.deviceId = { exact: preferredInputDeviceId };
+        }
+        const mediaConstraints = { audio: audioConstraints };
         localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+        const firstTrack = localStream.getAudioTracks()[0];
+        if (firstTrack && typeof firstTrack.getSettings === 'function') {
+          const settings = firstTrack.getSettings();
+          if (settings?.deviceId) {
+            preferredInputDeviceId = settings.deviceId;
+          }
+        }
         setMicMuted(false);
         enableMicControls(true);
       } catch (err) {
@@ -871,6 +1324,8 @@
         cleanup(true);
         return;
       }
+      updateDeviceSelectorsVisibility();
+      refreshDeviceOptions();
 
       const sendParams = await new Promise((resolve) => {
         socket.emit('createTransport', { roomId: room }, (p) => resolve(p));
@@ -901,7 +1356,14 @@
             opusStereo: true,
             opusDtx: true,
           };
-          await sendTransport.produce({ track, codecOptions });
+          const producer = await sendTransport.produce({ track, codecOptions });
+          activeProducers.add(producer);
+          const removeProducer = () => {
+            activeProducers.delete(producer);
+          };
+          producer.on('transportclose', removeProducer);
+          producer.on('trackended', removeProducer);
+          producer.on('close', removeProducer);
         } catch (e) {
           console.warn('produce error', e);
         }
@@ -980,6 +1442,7 @@
           record.audio.muted = false;
         }
         record.audio.play().catch(() => {});
+        applyOutputDeviceToElement(record.audio);
       }
 
       consumer.on('producerclose', () => {
@@ -1047,6 +1510,7 @@
       audio.controls = false;
       audio.playsInline = true;
       card.appendChild(audio);
+      registerAudioElement(audio);
 
       const actions = document.createElement('div');
       actions.className = 'actions';
@@ -1199,6 +1663,7 @@
       }
       if (record.audio) {
         record.audio.srcObject = null;
+        unregisterAudioElement(record.audio);
       }
       if (record.card.parentElement) {
         record.card.parentElement.removeChild(record.card);
@@ -1230,6 +1695,11 @@
       socket = null;
       disconnectHandler = null;
 
+      for (const producer of Array.from(activeProducers)) {
+        try { producer.close(); } catch (e) {}
+      }
+      activeProducers.clear();
+
       if (sendTransport) {
         try { sendTransport.close(); } catch (e) {}
       }
@@ -1252,6 +1722,7 @@
         }
         if (record.audio) {
           record.audio.srcObject = null;
+          unregisterAudioElement(record.audio);
         }
         record.card.remove();
       }
@@ -1259,6 +1730,7 @@
       peersInfo.clear();
       producerToPeer.clear();
       remoteList.innerHTML = '';
+      audioElements.clear();
 
       if (localStream) {
         for (const track of localStream.getTracks()) {
@@ -1271,6 +1743,8 @@
       micMuted = false;
       pushToTalkActive = false;
       isAdmin = false;
+      updateParticipantsVisibility();
+      updateDeviceSelectorsVisibility();
       joiningRoom = false;
       enableMicControls(false);
       muteBtn.textContent = 'Mute Mic';
