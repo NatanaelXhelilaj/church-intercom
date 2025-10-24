@@ -4,10 +4,66 @@ import https from "https";
 import { Server } from "socket.io";
 import * as mediasoup from "mediasoup";
 
-// add these imports to compute __dirname in ESM
+// add these imports to compute __dirname in ESM and load environment files
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+function applyEnvFromFile(filename) {
+  const filePath = path.join(__dirname, filename);
+  try {
+    if (!fs.existsSync(filePath)) {
+      return;
+    }
+
+    const contents = fs.readFileSync(filePath, "utf8");
+    contents.split(/\r?\n/).forEach((rawLine) => {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) {
+        return;
+      }
+
+      const exportPrefix = line.startsWith("export ") ? "export " : "";
+      const normalizedLine = exportPrefix
+        ? line.slice(exportPrefix.length)
+        : line;
+      const separatorIndex = normalizedLine.indexOf("=");
+      if (separatorIndex === -1) {
+        return;
+      }
+
+      const key = normalizedLine.slice(0, separatorIndex).trim();
+      if (!key || process.env[key] !== undefined) {
+        return;
+      }
+
+      let value = normalizedLine.slice(separatorIndex + 1);
+
+      // Preserve spaces inside quoted values and support escaped newlines
+      const trimmedValue = value.trim();
+      if (
+        (trimmedValue.startsWith("\"") && trimmedValue.endsWith("\"")) ||
+        (trimmedValue.startsWith("'") && trimmedValue.endsWith("'"))
+      ) {
+        value = trimmedValue.slice(1, -1);
+      } else {
+        // Remove inline comments for unquoted values
+        value = trimmedValue.replace(/\s+#.*$/, "");
+      }
+
+      process.env[key] = value.replace(/\\n/g, "\n");
+    });
+  } catch (error) {
+    console.warn(`Failed to load environment variables from ${filePath}:`, error);
+  }
+}
+
+// Explicit precedence: real environment > .env > .env.default
+applyEnvFromFile(".env");
+applyEnvFromFile(".env.default");
 
 async function start() {
   const app = express();
@@ -48,10 +104,6 @@ async function start() {
     server = http.createServer(app);
   }
   const io = new Server(server);
-
-  // compute __dirname for ESM
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
 
   const PORT = process.env.PORT || 3000;
   const ANNOUNCED_IP = process.env.ANNOUNCED_IP || "127.0.0.1"; // change to your public/LAN IP
