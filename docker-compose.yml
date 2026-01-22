@@ -1,0 +1,77 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: church-intercom-db
+    environment:
+      POSTGRES_DB: church_intercom
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    ports:
+      - "5433:5432"  # Using 5433 externally to avoid conflicts with local PostgreSQL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - church-intercom-network
+
+  # Church Intercom Application
+  app:
+    build: .
+    container_name: church-intercom-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Server configuration
+      PORT: ${PORT:-3000}
+      HTTPS: ${HTTPS:-false}
+      ANNOUNCED_IP: ${ANNOUNCED_IP:-127.0.0.1}
+
+      # Bitrate settings
+      MAX_INCOMING_BITRATE: ${MAX_INCOMING_BITRATE:-800000}
+      INITIAL_AVAILABLE_BITRATE: ${INITIAL_AVAILABLE_BITRATE:-1000000}
+
+      # Database connection (using docker service name)
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: church_intercom
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_IDLE_TIMEOUT: ${DB_IDLE_TIMEOUT:-30000}
+      DB_CONNECTION_TIMEOUT: ${DB_CONNECTION_TIMEOUT:-5000}
+
+      # Session configuration
+      SESSION_SECRET: ${SESSION_SECRET:-change-this-secret-in-production}
+
+      # Audio streaming features (optional)
+      SERVER_AUDIO_COMMAND: ${SERVER_AUDIO_COMMAND:-}
+      SERVER_AUDIO_NAME: ${SERVER_AUDIO_NAME:-House Feed}
+      SERVER_AUDIO_PAYLOAD_TYPE: ${SERVER_AUDIO_PAYLOAD_TYPE:-100}
+      ADMIN_TO_SERVER_COMMAND: ${ADMIN_TO_SERVER_COMMAND:-}
+    ports:
+      - "3000:3000"
+      - "3443:3443"  # HTTPS port
+      # mediasoup RTP port range
+      - "40000-40100:40000-40100/udp"
+      - "40000-40100:40000-40100/tcp"
+    volumes:
+      # Mount certificates if using HTTPS
+      - ./certs:/app/certs:ro
+    networks:
+      - church-intercom-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  church-intercom-network:
+    driver: bridge

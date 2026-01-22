@@ -1,0 +1,439 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Church Intercom — Login or Register</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --surface: rgba(255, 255, 255, 0.88);
+      --surface-strong: rgba(255, 255, 255, 0.96);
+      --border: rgba(15, 23, 42, 0.12);
+      --border-strong: rgba(15, 23, 42, 0.2);
+      --text: #0f172a;
+      --muted: rgba(15, 23, 42, 0.6);
+      --primary: #4059ff;
+      --primary-dark: #2433b8;
+      --primary-soft: rgba(64, 89, 255, 0.1);
+      --danger: #c2410c;
+      --success: #16a34a;
+      font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(160deg, #f3f4ff 0%, #eef2ff 35%, #f8fafc 100%);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 32px 16px;
+    }
+
+    .auth-container {
+      width: min(450px, 100%);
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 40px clamp(24px, 5vw, 40px);
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+    }
+
+    .auth-header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .auth-header h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      letter-spacing: -0.02em;
+    }
+
+    .auth-header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      padding: 4px;
+      background: rgba(15, 23, 42, 0.05);
+      border-radius: 12px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text);
+      transition: all 0.2s ease;
+    }
+
+    .tab.active {
+      background: white;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+    }
+
+    .form-section {
+      display: none;
+    }
+
+    .form-section.active {
+      display: block;
+    }
+
+    .field-group {
+      margin-bottom: 20px;
+    }
+
+    .field-label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-bottom: 8px;
+    }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="password"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border-strong);
+      font-size: 1rem;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      background: var(--surface-strong);
+    }
+
+    input:focus-visible {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-soft);
+    }
+
+    button[type="submit"] {
+      width: 100%;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 999px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--primary);
+      color: white;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+      margin-top: 8px;
+    }
+
+    button[type="submit"]:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(64, 89, 255, 0.24);
+      background: var(--primary-dark);
+    }
+
+    button[type="submit"]:disabled {
+      cursor: not-allowed;
+      background: rgba(15, 23, 42, 0.15);
+      color: rgba(15, 23, 42, 0.45);
+      box-shadow: none;
+    }
+
+    .error-message {
+      padding: 12px 16px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 12px;
+      color: #991b1b;
+      font-size: 0.9rem;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .error-message.visible {
+      display: block;
+    }
+
+    .success-message {
+      padding: 12px 16px;
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 12px;
+      color: #166534;
+      font-size: 0.9rem;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .success-message.visible {
+      display: block;
+    }
+
+    .help-text {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --surface: rgba(15, 23, 42, 0.8);
+        --surface-strong: rgba(15, 23, 42, 0.9);
+        --border: rgba(148, 163, 184, 0.25);
+        --border-strong: rgba(148, 163, 184, 0.45);
+        --text: #e2e8f0;
+        --muted: rgba(226, 232, 240, 0.7);
+      }
+
+      body {
+        background: radial-gradient(circle at top, rgba(30, 64, 175, 0.35), rgba(15, 23, 42, 0.95));
+      }
+
+      .tab.active {
+        background: rgba(226, 232, 240, 0.1);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-header">
+      <h1>Church Intercom</h1>
+      <p>Sign in or create an account to continue</p>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="login">Login</button>
+      <button class="tab" data-tab="register">Register</button>
+    </div>
+
+    <div id="loginSection" class="form-section active">
+      <div id="loginError" class="error-message"></div>
+
+      <form id="loginForm">
+        <div class="field-group">
+          <label class="field-label" for="loginUsername">Username</label>
+          <input
+            type="text"
+            id="loginUsername"
+            name="usernameOrEmail"
+            required
+            autocomplete="username"
+            placeholder="Enter your username"
+          />
+        </div>
+
+        <button type="submit" id="loginBtn">Login</button>
+      </form>
+    </div>
+
+    <div id="registerSection" class="form-section">
+      <div id="registerError" class="error-message"></div>
+
+      <form id="registerForm">
+        <div class="field-group">
+          <label class="field-label" for="registerUsername">Username</label>
+          <input
+            type="text"
+            id="registerUsername"
+            name="username"
+            required
+            autocomplete="username"
+            placeholder="Choose a username"
+            pattern="[a-zA-Z0-9_-]{3,50}"
+          />
+          <div class="help-text">3-50 characters, letters, numbers, underscores, or hyphens</div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="registerEmail">Email</label>
+          <input
+            type="email"
+            id="registerEmail"
+            name="email"
+            required
+            autocomplete="email"
+            placeholder="your.email@example.com"
+          />
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="registerDisplayName">Display Name</label>
+          <input
+            type="text"
+            id="registerDisplayName"
+            name="displayName"
+            required
+            autocomplete="name"
+            placeholder="Your full name"
+            maxlength="60"
+          />
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="registerPassword">Password</label>
+          <input
+            type="password"
+            id="registerPassword"
+            name="password"
+            required
+            autocomplete="new-password"
+            placeholder="Choose a strong password"
+            minlength="8"
+          />
+          <div class="help-text">At least 8 characters</div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="registerPasswordConfirm">Confirm Password</label>
+          <input
+            type="password"
+            id="registerPasswordConfirm"
+            name="passwordConfirm"
+            required
+            autocomplete="new-password"
+            placeholder="Re-enter your password"
+          />
+        </div>
+
+        <button type="submit" id="registerBtn">Create Account</button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    const tabs = document.querySelectorAll('.tab');
+    const loginSection = document.getElementById('loginSection');
+    const registerSection = document.getElementById('registerSection');
+    const loginForm = document.getElementById('loginForm');
+    const registerForm = document.getElementById('registerForm');
+    const loginError = document.getElementById('loginError');
+    const registerError = document.getElementById('registerError');
+    const loginBtn = document.getElementById('loginBtn');
+    const registerBtn = document.getElementById('registerBtn');
+
+    // Tab switching
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        const targetTab = tab.dataset.tab;
+        if (targetTab === 'login') {
+          loginSection.classList.add('active');
+          registerSection.classList.remove('active');
+          loginError.classList.remove('visible');
+        } else {
+          loginSection.classList.remove('active');
+          registerSection.classList.add('active');
+          registerError.classList.remove('visible');
+        }
+      });
+    });
+
+    // Show error message
+    function showError(element, message) {
+      element.textContent = message;
+      element.classList.add('visible');
+    }
+
+    // Hide error message
+    function hideError(element) {
+      element.classList.remove('visible');
+    }
+
+    // Login form submission
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError(loginError);
+
+      const formData = new FormData(loginForm);
+      const data = Object.fromEntries(formData.entries());
+
+      loginBtn.disabled = true;
+      loginBtn.textContent = 'Logging in...';
+
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+          credentials: 'include',
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Login failed');
+        }
+
+        // Redirect to main app
+        window.location.href = '/';
+      } catch (error) {
+        showError(loginError, error.message);
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Login';
+      }
+    });
+
+    // Register form submission
+    registerForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError(registerError);
+
+      const formData = new FormData(registerForm);
+      const data = Object.fromEntries(formData.entries());
+
+      // Validate password confirmation
+      if (data.password !== data.passwordConfirm) {
+        showError(registerError, 'Passwords do not match');
+        return;
+      }
+
+      delete data.passwordConfirm;
+
+      registerBtn.disabled = true;
+      registerBtn.textContent = 'Creating account...';
+
+      try {
+        const response = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+          credentials: 'include',
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Registration failed');
+        }
+
+        // Redirect to main app
+        window.location.href = '/';
+      } catch (error) {
+        showError(registerError, error.message);
+      } finally {
+        registerBtn.disabled = false;
+        registerBtn.textContent = 'Create Account';
+      }
+    });
+  </script>
+</body>
+</html>
