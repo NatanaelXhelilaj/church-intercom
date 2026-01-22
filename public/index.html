@@ -232,6 +232,30 @@
       gap: 14px;
     }
 
+    .house-feed-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .house-feed-body {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .house-feed-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .house-feed-help {
+      margin: 0;
+    }
+
     .mic-status {
       display: inline-flex;
       align-items: center;
@@ -262,6 +286,16 @@
     .status-chip.ptt {
       background: rgba(14, 165, 233, 0.18);
       color: #0f609b;
+    }
+
+    .status-chip.pending {
+      background: rgba(59, 130, 246, 0.18);
+      color: #1d4ed8;
+    }
+
+    .status-chip.error {
+      background: rgba(248, 113, 113, 0.18);
+      color: #b91c1c;
     }
 
     .status-chip.offline {
@@ -472,11 +506,12 @@
         <input
           type="text"
           id="displayName"
-          maxlength="40"
+          maxlength="60"
           autocomplete="name"
           autocapitalize="words"
           spellcheck="false"
-          placeholder="e.g. Sarah Johnson"
+          readonly
+          style="background: rgba(15, 23, 42, 0.05); cursor: default;"
         />
       </div>
       <div class="field-group">
@@ -495,8 +530,8 @@
         </div>
       </div>
       <div class="session-controls">
-        <label class="toggle"><input type="checkbox" id="adminMode" /> Join as admin</label>
         <button id="leave" class="secondary" disabled>Leave room</button>
+        <button id="logout" class="secondary">Logout</button>
         <span id="status" class="status" role="status" aria-live="polite"></span>
       </div>
     </section>
@@ -524,6 +559,34 @@
         </div>
         <span id="outputSupportNote" class="subtle hidden">Selecting an output device isn't supported in this browser.</span>
       </div>
+    </section>
+
+    <section id="houseFeed" class="panel house-feed-panel hidden" aria-live="polite">
+      <div class="panel-header">
+        <h2>House Feed</h2>
+        <span id="houseFeedSubtitle" class="subtle">Streamed from the server audio input to you only.</span>
+      </div>
+      <div class="house-feed-body">
+        <span id="houseFeedStatus" class="status-chip offline">Offline</span>
+        <div class="house-feed-actions">
+          <button id="houseFeedToggle" class="secondary">Start house feed</button>
+        </div>
+      </div>
+      <p id="houseFeedHelp" class="subtle house-feed-help">Toggle to stream venue audio to your device. This is a personal feed.</p>
+    </section>
+
+    <section id="adminToServer" class="panel house-feed-panel hidden" aria-live="polite">
+      <div class="panel-header">
+        <h2>Stream to Server</h2>
+        <span id="adminToServerSubtitle" class="subtle">Stream your audio to the server speakers (Admin only).</span>
+      </div>
+      <div class="house-feed-body">
+        <span id="adminToServerStatus" class="status-chip offline">Offline</span>
+        <div class="house-feed-actions">
+          <button id="adminToServerToggle" class="secondary">Start streaming to server</button>
+        </div>
+      </div>
+      <p id="adminToServerHelp" class="subtle house-feed-help">Toggle to stream your microphone audio to the server's speakers/headphone jack.</p>
     </section>
 
     <section id="remotes" class="panel participants-panel hidden">
@@ -555,6 +618,37 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script type="module">
+    // Check authentication on page load
+    async function checkAuth() {
+      try {
+        const response = await fetch('/api/user', {
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          // Not authenticated, redirect to login
+          window.location.href = '/auth.html';
+          return null;
+        }
+
+        const user = await response.json();
+        return user;
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        window.location.href = '/auth.html';
+        return null;
+      }
+    }
+
+    // Check auth before initializing the app
+    const currentUser = await checkAuth();
+    if (!currentUser) {
+      // Redirecting to login
+      throw new Error('Not authenticated');
+    }
+
+    console.log('Authenticated as:', currentUser.displayName, '(Admin:', currentUser.isAdmin, ')');
+
     // do not statically import Device here — a failed import would block the whole module.
     // We'll dynamically load it when actually joining a room.
     let Device = null;
@@ -569,10 +663,8 @@
       if (deviceLoadPromise) return deviceLoadPromise;
 
       const moduleSources = [
-        '/vendor/mediasoup-client.js',
-        '/vendor/mediasoup-client.mjs',
-        'https://cdn.jsdelivr.net/npm/mediasoup-client@3.17.1/lib/index.mjs',
-        'https://cdn.jsdelivr.net/npm/mediasoup-client@3.11.4/lib/index.mjs',
+        '/node_modules/mediasoup-client/lib/index.js',
+        'https://cdn.jsdelivr.net/npm/mediasoup-client@3/+esm',
         'https://esm.sh/mediasoup-client@3.17.1?bundle',
       ];
       const scriptSources = [
@@ -677,13 +769,23 @@
     const selectedRoomLabel = document.getElementById('selectedRoomLabel');
     const statusEl = document.getElementById('status');
     const leaveBtn = document.getElementById('leave');
-    const adminToggle = document.getElementById('adminMode');
+    const logoutBtn = document.getElementById('logout');
     const muteBtn = document.getElementById('mute');
     const pushToTalkBtn = document.getElementById('pushToTalk');
     const micStatusEl = document.getElementById('micStatus');
     const remoteList = document.getElementById('remoteList');
     const nameInput = document.getElementById('displayName');
     const localNameEl = document.getElementById('localName');
+    const houseFeedPanel = document.getElementById('houseFeed');
+    const houseFeedStatus = document.getElementById('houseFeedStatus');
+    const houseFeedToggle = document.getElementById('houseFeedToggle');
+    const houseFeedHelp = document.getElementById('houseFeedHelp');
+    const houseFeedSubtitle = document.getElementById('houseFeedSubtitle');
+    const adminToServerPanel = document.getElementById('adminToServer');
+    const adminToServerStatus = document.getElementById('adminToServerStatus');
+    const adminToServerToggle = document.getElementById('adminToServerToggle');
+    const adminToServerHelp = document.getElementById('adminToServerHelp');
+    const adminToServerSubtitle = document.getElementById('adminToServerSubtitle');
     const isDesktopClient = !/Android|webOS|iPhone|iPad|iPod|BlackBerry|Windows Phone/i.test(navigator.userAgent || '');
     const canSelectOutputDevice =
       typeof HTMLMediaElement !== 'undefined' && typeof HTMLMediaElement.prototype.setSinkId === 'function';
@@ -699,6 +801,7 @@
     const outputSelectorGroup = document.getElementById('outputSelectorGroup');
     const outputSupportNote = document.getElementById('outputSupportNote');
     const participantsPanel = document.querySelector('.participants-panel');
+    const SERVER_FEED_PREFIX = 'server-feed:';
 
     function roomLabel(roomId) {
       if (ROOM_LABELS.has(roomId)) {
@@ -792,10 +895,18 @@
     let micMuted = false;
     let pushToTalkActive = false;
     let headsetPressActive = false;
-    let isAdmin = false;
-    let displayName = '';
+    let isAdmin = currentUser.isAdmin;
+    let displayName = currentUser.displayName;
     let joiningRoom = false;
     let disconnectHandler = null;
+    let currentRoomId = null;
+    let houseFeedEnabled = false;
+    let houseFeedPending = false;
+    let houseFeedPeerId = '';
+    let houseFeedName = 'House Feed';
+    let adminToServerEnabled = false;
+    let adminToServerPending = false;
+    let adminToServerProducerId = null;
     const peersInfo = new Map();
     const peerCards = new Map();
     const producerToPeer = new Map();
@@ -820,10 +931,118 @@
       refreshDeviceOptions();
     }
 
+    function isServerFeedId(id) {
+      return typeof id === 'string' && id.startsWith(SERVER_FEED_PREFIX);
+    }
+
+    function setHouseFeedStatus(state, label) {
+      if (!houseFeedStatus) return;
+      const classes = ['live', 'offline', 'pending', 'error'];
+      houseFeedStatus.classList.remove(...classes);
+      let text = label || '';
+      switch (state) {
+        case 'on':
+          houseFeedStatus.classList.add('live');
+          text = text || 'Streaming';
+          break;
+        case 'pending':
+          houseFeedStatus.classList.add('pending');
+          text = text || 'Starting…';
+          break;
+        case 'error':
+          houseFeedStatus.classList.add('error');
+          text = text || 'Unavailable';
+          break;
+        default:
+          houseFeedStatus.classList.add('offline');
+          text = text || 'Offline';
+          break;
+      }
+      houseFeedStatus.textContent = text;
+    }
+
+    function updateHouseFeedControls() {
+      if (!houseFeedPanel) return;
+      const connected = !!socket;
+      houseFeedPanel.classList.toggle('hidden', !connected);
+      if (!connected) {
+        return;
+      }
+
+      if (houseFeedSubtitle) {
+        houseFeedSubtitle.textContent = 'Streamed from the server audio input to you only.';
+      }
+
+      if (houseFeedToggle) {
+        houseFeedToggle.classList.remove('hidden');
+        houseFeedToggle.textContent = houseFeedEnabled ? 'Stop house feed' : 'Start house feed';
+        houseFeedToggle.disabled = houseFeedPending;
+      }
+
+      if (houseFeedHelp) {
+        houseFeedHelp.textContent = 'Toggle to stream venue audio to your device. This is a personal feed and does not affect other users.';
+        houseFeedHelp.classList.remove('hidden');
+      }
+    }
+
+    function setAdminToServerStatus(state, label) {
+      if (!adminToServerStatus) return;
+      const classes = ['live', 'offline', 'pending', 'error'];
+      adminToServerStatus.classList.remove(...classes);
+      let text = label || '';
+      switch (state) {
+        case 'on':
+          adminToServerStatus.classList.add('live');
+          text = text || 'Streaming';
+          break;
+        case 'pending':
+          adminToServerStatus.classList.add('pending');
+          text = text || 'Starting…';
+          break;
+        case 'error':
+          adminToServerStatus.classList.add('error');
+          text = text || 'Unavailable';
+          break;
+        default:
+          adminToServerStatus.classList.add('offline');
+          text = text || 'Offline';
+          break;
+      }
+      adminToServerStatus.textContent = text;
+    }
+
+    function updateAdminToServerControls() {
+      if (!adminToServerPanel) return;
+      const canControl = !!socket && isAdmin;
+      adminToServerPanel.classList.toggle('hidden', !canControl);
+      if (!canControl) {
+        return;
+      }
+
+      if (adminToServerSubtitle) {
+        adminToServerSubtitle.textContent = 'Stream your audio to the server speakers (Admin only).';
+      }
+
+      if (adminToServerToggle) {
+        adminToServerToggle.classList.remove('hidden');
+        adminToServerToggle.textContent = adminToServerEnabled ? 'Stop streaming to server' : 'Start streaming to server';
+        adminToServerToggle.disabled = adminToServerPending || !localStream;
+      }
+
+      if (adminToServerHelp) {
+        adminToServerHelp.textContent = 'Toggle to stream your microphone audio to the server\'s speakers/headphone jack.';
+        adminToServerHelp.classList.remove('hidden');
+      }
+    }
+
     function updateParticipantsVisibility() {
       if (!participantsPanel) return;
-      const shouldShow = socket ? isAdmin : !!adminToggle?.checked;
+      // Show participants panel when connected to a room (for everyone, not just admins)
+      // Admins will see additional controls (kick buttons) via updateKickButton logic
+      const shouldShow = !!socket;
       participantsPanel.classList.toggle('hidden', !shouldShow);
+      updateHouseFeedControls();
+      updateAdminToServerControls();
     }
 
     function summarizeId(id) {
@@ -1021,18 +1240,37 @@
       }
     }
 
+    // Set initial display name from authenticated user
+    nameInput.value = displayName;
+    localNameEl.textContent = displayName;
+
     updateParticipantsVisibility();
     updateDeviceSelectorsVisibility();
+    setHouseFeedStatus('off', 'Offline');
+    updateHouseFeedControls();
+    setAdminToServerStatus('off', 'Offline');
+    updateAdminToServerControls();
 
     leaveBtn.onclick = () => {
       cleanup(true);
     };
 
-    adminToggle?.addEventListener('change', () => {
-      if (socket) return;
-      updateParticipantsVisibility();
-      updateDeviceSelectorsVisibility();
-    });
+    logoutBtn.onclick = async () => {
+      if (socket) {
+        cleanup(true);
+      }
+
+      try {
+        await fetch('/api/logout', {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch (error) {
+        console.error('Logout error:', error);
+      }
+
+      window.location.href = '/auth.html';
+    };
 
     muteBtn.addEventListener('click', () => {
       if (!localStream) return;
@@ -1116,11 +1354,123 @@
     window.addEventListener('pagehide', handlePageExit);
     window.addEventListener('beforeunload', handlePageExit);
 
+    houseFeedToggle?.addEventListener('click', () => {
+      if (!socket) {
+        return;
+      }
+      if (houseFeedPending) {
+        return;
+      }
+      houseFeedPending = true;
+      setHouseFeedStatus('pending', houseFeedEnabled ? 'Stopping…' : 'Starting…');
+      updateHouseFeedControls();
+      socket.emit('setServerFeed', { enabled: !houseFeedEnabled }, (res = {}) => {
+        if (res.error) {
+          alert('House feed error: ' + res.error);
+          houseFeedPending = false;
+          setHouseFeedStatus(houseFeedEnabled ? 'on' : 'off', houseFeedEnabled ? 'Streaming' : 'Offline');
+          updateHouseFeedControls();
+          return;
+        }
+        if (typeof res.enabled === 'boolean') {
+          houseFeedEnabled = res.enabled;
+        }
+        houseFeedPending = false;
+        updateHouseFeedControls();
+      });
+    });
+
+    adminToServerToggle?.addEventListener('click', async () => {
+      if (!socket || !isAdmin) {
+        return;
+      }
+      if (adminToServerPending) {
+        return;
+      }
+      if (!localStream) {
+        alert('Please join a room first to enable your microphone');
+        return;
+      }
+
+      adminToServerPending = true;
+      setAdminToServerStatus('pending', adminToServerEnabled ? 'Stopping…' : 'Starting…');
+      updateAdminToServerControls();
+
+      try {
+        if (adminToServerEnabled) {
+          // Stop streaming
+          socket.emit('setAdminToServer', { enabled: false }, (res = {}) => {
+            if (res.error) {
+              alert('Admin-to-server error: ' + res.error);
+              adminToServerPending = false;
+              setAdminToServerStatus('on', 'Streaming');
+              updateAdminToServerControls();
+              return;
+            }
+            adminToServerEnabled = false;
+            adminToServerProducerId = null;
+            adminToServerPending = false;
+            setAdminToServerStatus('off', 'Offline');
+            updateAdminToServerControls();
+          });
+        } else {
+          // Start streaming - need to get the producer ID
+          if (!adminToServerProducerId) {
+            // Need to find our producer ID from the active producers
+            const myProducerId = Array.from(activeProducers)[0];
+            if (!myProducerId) {
+              alert('No active audio producer found. Please ensure your microphone is working.');
+              adminToServerPending = false;
+              setAdminToServerStatus('off', 'Offline');
+              updateAdminToServerControls();
+              return;
+            }
+            adminToServerProducerId = myProducerId;
+          }
+
+          // Get RTP capabilities
+          const rtpCapabilities = device.rtpCapabilities;
+
+          socket.emit('setAdminToServer', {
+            enabled: true,
+            producerId: adminToServerProducerId,
+            rtpCapabilities
+          }, (res = {}) => {
+            if (res.error) {
+              alert('Admin-to-server error: ' + res.error);
+              adminToServerPending = false;
+              setAdminToServerStatus('off', 'Offline');
+              updateAdminToServerControls();
+              return;
+            }
+            adminToServerEnabled = true;
+            adminToServerPending = false;
+            setAdminToServerStatus('on', 'Streaming');
+            updateAdminToServerControls();
+          });
+        }
+      } catch (err) {
+        console.error('Admin-to-server toggle error:', err);
+        alert('Failed to toggle admin-to-server: ' + err.message);
+        adminToServerPending = false;
+        setAdminToServerStatus('off', 'Offline');
+        updateAdminToServerControls();
+      }
+    });
+
     function applyLocalTrackState() {
       if (!localStream) return;
       const tracks = localStream.getAudioTracks();
       for (const track of tracks) {
         track.enabled = !micMuted || pushToTalkActive;
+        console.log('applyLocalTrackState:', {
+          trackId: track.id,
+          trackEnabled: track.enabled,
+          micMuted,
+          pushToTalkActive,
+          trackReadyState: track.readyState,
+          trackMuted: track.muted
+        });
       }
     }
 
@@ -1209,19 +1559,18 @@
         return;
       }
 
-      const rawName = (nameInput?.value || '').trim();
-      if (!rawName) {
-        alert('Please enter your name before joining a room.');
-        nameInput?.focus();
-        return;
-      }
-      const normalizedName = rawName.replace(/\s+/g, ' ');
-      displayName = normalizedName.slice(0, 60);
-      nameInput.value = displayName;
-      localNameEl.textContent = displayName;
+      // Display name already set from authenticated user
       joiningRoom = true;
       setRoomButtonsDisabled(true);
       log('Connecting to room ' + roomLabel(room));
+
+      currentRoomId = room;
+      houseFeedEnabled = false;
+      houseFeedPending = false;
+      houseFeedPeerId = '';
+      houseFeedName = 'House Feed';
+      setHouseFeedStatus('pending', 'Connecting…');
+      updateHouseFeedControls();
 
       try {
         const DeviceClass = await loadDeviceModule();
@@ -1231,19 +1580,25 @@
         alert('Failed to load mediasoup client. Check console for details.');
         joiningRoom = false;
         setRoomButtonsDisabled(false);
+        currentRoomId = null;
+        houseFeedEnabled = false;
+        houseFeedPending = false;
+        houseFeedPeerId = '';
+        houseFeedName = 'House Feed';
+        setHouseFeedStatus('off', 'Offline');
+        updateHouseFeedControls();
         return;
       }
 
-      isAdmin = !!adminToggle.checked;
-      adminToggle.disabled = true;
+      // isAdmin already set from currentUser
       nameInput.disabled = true;
       updateParticipantsVisibility();
       updateDeviceSelectorsVisibility();
 
-      const query = { room, name: displayName };
-      if (isAdmin) query.admin = '1';
-      socket = io({ query });
+      const query = { room };
+      socket = io({ query, withCredentials: true });
       updateDeviceSelectorsVisibility();
+      updateHouseFeedControls();
 
       disconnectHandler = () => {
         cleanup(false);
@@ -1259,30 +1614,84 @@
       });
 
       socket.on('peers', (list) => {
+        console.log('Received peers list:', { count: list?.length, peers: list, mySocketId: socket.id });
         for (const peer of list || []) {
-          peersInfo.set(peer.id, { admin: !!peer.admin, name: peer.name || '' });
-          ensurePeerCard(peer.id);
+          if (!peer?.id) continue;
+          const isServer = !!peer.serverFeed || isServerFeedId(peer.id);
+          console.log('Processing peer:', { peerId: peer.id, isServer, admin: peer.admin, name: peer.name });
+          if (!isServer) {
+            // Only add real peers, not server feeds
+            peersInfo.set(peer.id, { admin: !!peer.admin, name: peer.name || '', serverFeed: false });
+            ensurePeerCard(peer.id);
+          }
         }
+        console.log('After processing peers - peersInfo size:', peersInfo.size, 'peerCards size:', peerCards.size);
         refreshPeerCards();
+        updateHouseFeedControls();
       });
 
-      socket.on('peer-joined', ({ id, admin, name }) => {
-        peersInfo.set(id, { admin: !!admin, name: name || '' });
-        ensurePeerCard(id);
-        const label = name ? `${name} (${id})` : id;
-        log('peer-joined: ' + label);
-        refreshPeerCards();
+      socket.on('peer-joined', ({ id, admin, name, serverFeed }) => {
+        if (!id) return;
+        const isServer = !!serverFeed || isServerFeedId(id);
+        if (!isServer) {
+          // Only add real peers, not server feeds
+          peersInfo.set(id, { admin: !!admin, name: name || '', serverFeed: false });
+          ensurePeerCard(id);
+          const label = name ? `${name} (${id})` : id;
+          log('peer-joined: ' + label);
+          refreshPeerCards();
+        }
       });
 
       socket.on('peer-left', ({ id, name }) => {
-        peersInfo.delete(id);
-        removePeerCard(id);
-        const label = name ? `${name} (${id})` : id;
-        log('peer-left: ' + label);
-        refreshPeerCards();
+        const isServer = id && isServerFeedId(id);
+        if (!isServer) {
+          peersInfo.delete(id);
+          removePeerCard(id);
+          const label = name ? `${name} (${id})` : id;
+          log('peer-left: ' + label);
+          refreshPeerCards();
+        }
+      });
+
+      socket.on('server-feed-state', ({ enabled, id, name }) => {
+        if (typeof id === 'string' && id) {
+          houseFeedPeerId = id;
+        }
+        if (typeof name === 'string' && name.trim()) {
+          houseFeedName = name.trim();
+        }
+        houseFeedEnabled = !!enabled;
+        if (houseFeedEnabled) {
+          setHouseFeedStatus('on', 'Streaming');
+        } else {
+          setHouseFeedStatus('off', 'Offline');
+        }
+        houseFeedPending = false;
+        updateHouseFeedControls();
+      });
+
+      socket.on('admin-to-server-state', ({ enabled, reason }) => {
+        adminToServerEnabled = !!enabled;
+        if (adminToServerEnabled) {
+          setAdminToServerStatus('on', 'Streaming');
+        } else {
+          if (reason && reason.startsWith('process-exit')) {
+            setAdminToServerStatus('error', 'Process stopped');
+            console.error('Admin-to-server process exited:', reason);
+          } else if (reason && reason.startsWith('process-error')) {
+            setAdminToServerStatus('error', 'Process error');
+            console.error('Admin-to-server process error:', reason);
+          } else {
+            setAdminToServerStatus('off', 'Offline');
+          }
+        }
+        adminToServerPending = false;
+        updateAdminToServerControls();
       });
 
       socket.on('new-producer', ({ producerId, socketId }) => {
+        console.log('new-producer event', { producerId, socketId, mySocketId: socket.id });
         consumeProducer(producerId, room, socketId).catch(console.error);
       });
 
@@ -1325,6 +1734,7 @@
         return;
       }
       updateDeviceSelectorsVisibility();
+      updateAdminToServerControls();
       refreshDeviceOptions();
 
       const sendParams = await new Promise((resolve) => {
@@ -1336,9 +1746,20 @@
         return;
       }
       sendTransport = device.createSendTransport(sendParams);
+
+      // Log transport connection state changes
+      sendTransport.on('connectionstatechange', (state) => {
+        console.log('sendTransport connectionstatechange:', state);
+      });
+
       sendTransport.on('connect', ({ dtlsParameters }, cb, errCb) => {
+        console.log('sendTransport connect event', { transportId: sendTransport.id });
         socket.emit('connectTransport', { roomId: room, transportId: sendTransport.id, dtlsParameters }, (res) => {
-          if (res && res.error) return errCb(res.error);
+          if (res && res.error) {
+            console.error('sendTransport connect error:', res.error);
+            return errCb(res.error);
+          }
+          console.log('sendTransport connected successfully');
           cb();
         });
       });
@@ -1350,6 +1771,20 @@
         });
       });
 
+      // Check if local microphone is actually capturing audio
+      const localAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const localSource = localAudioContext.createMediaStreamSource(localStream);
+      const localAnalyser = localAudioContext.createAnalyser();
+      localAnalyser.fftSize = 256;
+      localSource.connect(localAnalyser);
+      const localDataArray = new Uint8Array(localAnalyser.frequencyBinCount);
+
+      setInterval(() => {
+        localAnalyser.getByteFrequencyData(localDataArray);
+        const average = localDataArray.reduce((a, b) => a + b) / localDataArray.length;
+        console.log('Local mic audio level:', { average, hasAudio: average > 0 });
+      }, 2000);
+
       for (const track of localStream.getAudioTracks()) {
         try {
           const codecOptions = {
@@ -1357,9 +1792,32 @@
             opusDtx: true,
           };
           const producer = await sendTransport.produce({ track, codecOptions });
+
+          console.log('Producer created:', {
+            id: producer.id,
+            kind: producer.kind,
+            paused: producer.paused,
+            track: producer.track?.id,
+            trackEnabled: producer.track?.enabled
+          });
+
+          // Explicitly resume producer to ensure it's sending
+          if (producer.paused) {
+            await producer.resume();
+            console.log('Producer resumed after creation');
+          }
+
           activeProducers.add(producer);
+          // Store producer ID for admin-to-server streaming
+          if (!adminToServerProducerId) {
+            adminToServerProducerId = producer.id;
+          }
           const removeProducer = () => {
             activeProducers.delete(producer);
+            // Clear admin-to-server producer ID if this was the one being used
+            if (adminToServerProducerId === producer.id) {
+              adminToServerProducerId = null;
+            }
           };
           producer.on('transportclose', removeProducer);
           producer.on('trackended', removeProducer);
@@ -1369,6 +1827,7 @@
         }
       }
       applyLocalTrackState();
+      updateAdminToServerControls();
 
       const recvParams = await new Promise((resolve) => {
         socket.emit('createTransport', { roomId: room }, (p) => resolve(p));
@@ -1379,9 +1838,20 @@
         return;
       }
       recvTransport = device.createRecvTransport(recvParams);
+
+      // Log transport connection state changes
+      recvTransport.on('connectionstatechange', (state) => {
+        console.log('recvTransport connectionstatechange:', state);
+      });
+
       recvTransport.on('connect', ({ dtlsParameters }, cb, errCb) => {
+        console.log('recvTransport connect event', { transportId: recvTransport.id });
         socket.emit('connectTransport', { roomId: room, transportId: recvTransport.id, dtlsParameters }, (res) => {
-          if (res && res.error) return errCb(res.error);
+          if (res && res.error) {
+            console.error('recvTransport connect error:', res.error);
+            return errCb(res.error);
+          }
+          console.log('recvTransport connected successfully');
           cb();
         });
       });
@@ -1389,6 +1859,7 @@
       const existing = await new Promise((resolve) => {
         socket.emit('getProducers', { roomId: room }, (list) => resolve(list || []));
       });
+      console.log('getProducers response', { count: existing.length, producers: existing });
       for (const p of existing) {
         consumeProducer(p.producerId, room, p.socketId).catch(console.error);
       }
@@ -1402,8 +1873,16 @@
     }
 
     async function consumeProducer(producerId, room, ownerId) {
-      if (!recvTransport || !device || !socket) return;
-      if (consuming[producerId]) return;
+      if (!recvTransport || !device || !socket) {
+        console.warn('consumeProducer: missing dependencies', { recvTransport: !!recvTransport, device: !!device, socket: !!socket });
+        return;
+      }
+      if (consuming[producerId]) {
+        console.log('consumeProducer: already consuming', producerId);
+        return;
+      }
+
+      console.log('consumeProducer: starting', { producerId, ownerId });
 
       const data = await new Promise((resolve) => {
         socket.emit('consume', { roomId: room, producerId, rtpCapabilities: device.rtpCapabilities, transportId: recvTransport.id }, (res) => resolve(res));
@@ -1413,6 +1892,8 @@
         return;
       }
 
+      console.log('consumeProducer: server response', data);
+
       const consumer = await recvTransport.consume({
         id: data.id,
         producerId: data.producerId,
@@ -1420,11 +1901,57 @@
         rtpParameters: data.rtpParameters,
       });
 
+      // Resume the consumer to start receiving audio
+      await new Promise((resolve) => {
+        socket.emit('resumeConsumer', { roomId: room, consumerId: consumer.id }, (res) => {
+          console.log('Consumer resumed:', res);
+          resolve(res);
+        });
+      });
+
       consuming[producerId] = consumer;
       if (ownerId) producerToPeer.set(producerId, ownerId);
 
       const stream = new MediaStream();
       stream.addTrack(consumer.track);
+
+      console.log('consumeProducer: created stream', { streamId: stream.id, trackId: consumer.track.id, trackEnabled: consumer.track.enabled });
+
+      // Check if audio is actually flowing
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      const checkAudio = async () => {
+        analyser.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+
+        // Also check WebRTC stats
+        const stats = await consumer.getStats();
+        let bytesReceived = 0;
+        let packetsReceived = 0;
+        stats.forEach(stat => {
+          if (stat.type === 'inbound-rtp') {
+            bytesReceived = stat.bytesReceived || 0;
+            packetsReceived = stat.packetsReceived || 0;
+          }
+        });
+
+        console.log('consumeProducer: audio level check', {
+          peerId: ownerId,
+          average,
+          hasAudio: average > 0,
+          bytesReceived,
+          packetsReceived,
+          consumerPaused: consumer.paused
+        });
+      };
+
+      setTimeout(checkAudio, 2000);
+      setTimeout(checkAudio, 5000);
 
       let record = null;
       if (ownerId) {
@@ -1434,6 +1961,7 @@
         record = peerCards.get(producerToPeer.get(producerId));
       }
       if (record) {
+        console.log('consumeProducer: attaching to peer card', { peerId: record.peerId, audioMuted: record.audio.muted });
         record.audio.srcObject = stream;
         record.stream = stream;
         if (record.muted && !record.pushHeld) {
@@ -1441,8 +1969,14 @@
         } else {
           record.audio.muted = false;
         }
-        record.audio.play().catch(() => {});
+        record.audio.play().then(() => {
+          console.log('consumeProducer: audio playing', { peerId: record.peerId, volume: record.audio.volume, muted: record.audio.muted });
+        }).catch((err) => {
+          console.error('consumeProducer: audio play failed', err);
+        });
         applyOutputDeviceToElement(record.audio);
+      } else {
+        console.warn('consumeProducer: no peer card found for', { producerId, ownerId });
       }
 
       consumer.on('producerclose', () => {
@@ -1509,6 +2043,8 @@
       audio.autoplay = true;
       audio.controls = false;
       audio.playsInline = true;
+      audio.muted = false;
+      audio.volume = 1.0;
       card.appendChild(audio);
       registerAudioElement(audio);
 
@@ -1607,6 +2143,14 @@
 
     function updateKickButton(record) {
       if (!record) return;
+      const meta = peersInfo.get(record.peerId);
+      if (meta?.serverFeed || isServerFeedId(record.peerId)) {
+        if (record.kickBtn) {
+          record.kickBtn.remove();
+          record.kickBtn = null;
+        }
+        return;
+      }
       if (!isAdmin) {
         if (record.kickBtn) {
           record.kickBtn.remove();
@@ -1695,6 +2239,19 @@
       socket = null;
       disconnectHandler = null;
 
+      currentRoomId = null;
+      houseFeedEnabled = false;
+      houseFeedPending = false;
+      houseFeedPeerId = '';
+      houseFeedName = 'House Feed';
+      setHouseFeedStatus('off', 'Offline');
+      updateHouseFeedControls();
+      adminToServerEnabled = false;
+      adminToServerPending = false;
+      adminToServerProducerId = null;
+      setAdminToServerStatus('off', 'Offline');
+      updateAdminToServerControls();
+
       for (const producer of Array.from(activeProducers)) {
         try { producer.close(); } catch (e) {}
       }
@@ -1742,7 +2299,7 @@
       producedIds = [];
       micMuted = false;
       pushToTalkActive = false;
-      isAdmin = false;
+      // Keep isAdmin from currentUser, don't reset
       updateParticipantsVisibility();
       updateDeviceSelectorsVisibility();
       joiningRoom = false;
@@ -1753,7 +2310,6 @@
       device = null;
 
       leaveBtn.disabled = true;
-      adminToggle.disabled = false;
       nameInput.disabled = false;
       localNameEl.textContent = displayName
         ? `${displayName} · not connected`

@@ -2,15 +2,22 @@
   "name": "church-intercom",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
+    "@discordjs/opus": "^0.10.0",
+    "bcrypt": "^5.1.1",
+    "connect-pg-simple": "^9.0.1",
+    "cookie-parser": "^1.4.6",
     "express": "^4.18.2",
+    "express-session": "^1.18.0",
     "mediasoup": "^3.19.6",
     "mediasoup-client": "^3.12.0",
-    "qrcode": "^1.5.1",
+    "node-record-lpcm16": "^1.0.1",
+    "pg": "^8.11.3",
     "socket.io": "^4.7.2",
-    "uuid": "^9.0.0"
+    "speaker": "^0.5.5"
   }
 }
