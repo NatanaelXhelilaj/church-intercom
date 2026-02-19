@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "BYPASS_AUTH=true HTTPS=true PORT=3443 ANNOUNCED_IP=192.168.18.152 node server.js"
   },
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
