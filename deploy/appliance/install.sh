@@ -63,15 +63,25 @@ note "wrapper -> $WRAPPER"
 if [ -f "$ENV_FILE" ]; then
     note "keeping existing $ENV_FILE"
 else
-    # openssl is present on a stock Ubuntu; /dev/urandom is the fallback that
-    # cannot fail.
-    secret="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-    sed "s|^SESSION_SECRET=replace-me$|SESSION_SECRET=${secret}|" \
-        "$SRC_DIR/church-intercom.env.example" > "$ENV_FILE"
-    chmod 0640 "$ENV_FILE"
-    chown root:"$APP_USER" "$ENV_FILE"
-    note "wrote $ENV_FILE with a generated SESSION_SECRET"
+    install -m 0640 -o root -g "$APP_USER" \
+        "$SRC_DIR/church-intercom.env.example" "$ENV_FILE"
+    note "wrote $ENV_FILE"
 fi
+
+# Application config lives in the checkout, not here. Catch the two ways it can
+# be wrong now, while someone is watching, rather than at the next cold boot.
+if [ ! -f "$APP_DIR/.env" ]; then
+    echo "    ERROR: $APP_DIR/.env is missing -- copy .env.example and fill it in" >&2
+    exit 1
+fi
+if grep -qE '^BYPASS_AUTH=(1|true|yes|on)' "$APP_DIR/.env" \
+   && grep -qE '^NODE_ENV=production' "$APP_DIR/.env"; then
+    # config.js treats this pair as fatal and exits, which under Restart=always
+    # is an invisible crash loop rather than an error anyone would notice.
+    echo "    ERROR: .env sets BYPASS_AUTH with NODE_ENV=production; config.js refuses to boot" >&2
+    exit 1
+fi
+note "app config at $APP_DIR/.env looks consistent"
 
 install -m 0644 "$SRC_DIR/church-intercom.service" "$UNIT"
 systemctl daemon-reload
