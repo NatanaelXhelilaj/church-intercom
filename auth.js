@@ -1,7 +1,15 @@
 import bcrypt from "bcrypt";
 import pool from "./db.js";
+import config from "./config.js";
 
 const SALT_ROUNDS = 10;
+
+/**
+ * A bcrypt hash of a value nobody knows, compared against when a username does
+ * not exist. Without this, a missing user returns noticeably faster than a
+ * wrong password and the login endpoint becomes a username oracle.
+ */
+const DUMMY_HASH = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 const USERNAME_REGEX = /^[a-zA-Z0-9_-]{3,50}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -80,25 +88,15 @@ export async function registerUser(username, email, password, displayName, isAdm
 
   const sanitizedDisplayName = displayNameValidation.sanitized;
 
+  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+  const insertQuery = `
+    INSERT INTO users (username, email, password_hash, display_name, is_admin, is_active)
+    VALUES ($1, $2, $3, $4, $5, TRUE)
+    RETURNING id, username, email, display_name, is_admin, is_active, created_at
+  `;
+
   try {
-    // Check if username or email already exists
-    const checkQuery = "SELECT id FROM users WHERE username = $1 OR email = $2";
-    const checkResult = await pool.query(checkQuery, [username.toLowerCase(), email.toLowerCase()]);
-
-    if (checkResult.rows.length > 0) {
-      throw new Error("Username or email already exists");
-    }
-
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-
-    // Insert new user
-    const insertQuery = `
-      INSERT INTO users (username, email, password_hash, display_name, is_admin, is_active)
-      VALUES ($1, $2, $3, $4, $5, TRUE)
-      RETURNING id, username, email, display_name, is_admin, is_active, created_at
-    `;
-
     const result = await pool.query(insertQuery, [
       username.toLowerCase(),
       email.toLowerCase(),
@@ -109,6 +107,11 @@ export async function registerUser(username, email, password, displayName, isAdm
 
     return result.rows[0];
   } catch (error) {
+    // Let the UNIQUE constraint decide, rather than a SELECT-then-INSERT that
+    // two concurrent registrations can both pass.
+    if (error.code === "23505") {
+      throw new Error("Username or email already exists");
+    }
     console.error("Registration error:", error.message);
     throw error;
   }
@@ -116,68 +119,104 @@ export async function registerUser(username, email, password, displayName, isAdm
 
 // Login user
 export async function loginUser(usernameOrEmail, password) {
-  if (!usernameOrEmail) {
-    throw new Error("Username is required");
+  if (!usernameOrEmail || typeof usernameOrEmail !== "string") {
+    throw new Error("Invalid credentials");
   }
 
-  // BYPASS MODE for local development without database - no password required
-  if (process.env.BYPASS_AUTH === 'true') {
-    console.log('BYPASS_AUTH enabled - allowing login without database');
+  // Development-only escape hatch. config.js refuses to boot with this enabled
+  // under NODE_ENV=production, so it cannot reach a deployed install.
+  if (config.auth.bypass) {
+    console.warn("BYPASS_AUTH is enabled - accepting login without verification");
     return {
       id: 1,
       username: usernameOrEmail.toLowerCase(),
       email: `${usernameOrEmail.toLowerCase()}@example.com`,
-      display_name: usernameOrEmail,
-      is_admin: usernameOrEmail.toLowerCase().includes('admin'),
-      is_active: true,
+      displayName: usernameOrEmail,
+      isAdmin: usernameOrEmail.toLowerCase().includes("admin"),
+      isActive: true,
     };
   }
 
-  try {
-    // Find user by username or email
-    const query = `
-      SELECT id, username, email, password_hash, display_name, is_admin, is_active
-      FROM users
-      WHERE (username = $1 OR email = $1) AND is_active = TRUE
-    `;
-
-    const result = await pool.query(query, [usernameOrEmail.toLowerCase()]);
-
-    if (result.rows.length === 0) {
-      throw new Error("Invalid credentials");
-    }
-
-    const user = result.rows[0];
-
-    // Verify password
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
-
-    if (!passwordMatch) {
-      throw new Error("Invalid credentials");
-    }
-
-    // Update last login timestamp
-    await pool.query("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1", [user.id]);
-
-    // Return user data (without password hash)
-    return {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      displayName: user.display_name,
-      isAdmin: user.is_admin,
-      isActive: user.is_active,
-    };
-  } catch (error) {
-    console.error("Login error:", error.message);
-    throw error;
+  if (!password || typeof password !== "string") {
+    throw new Error("Invalid credentials");
   }
+
+  const query = `
+    SELECT id, username, email, password_hash, display_name, is_admin, is_active
+    FROM users
+    WHERE (username = $1 OR email = $1) AND is_active = TRUE
+  `;
+
+  const result = await pool.query(query, [usernameOrEmail.toLowerCase()]);
+  const user = result.rows[0];
+
+  // Always run a comparison, even for an unknown username, so response timing
+  // does not reveal which accounts exist.
+  const passwordMatch = await bcrypt.compare(
+    password,
+    user ? user.password_hash : DUMMY_HASH
+  );
+
+  if (!user || !passwordMatch) {
+    throw new Error("Invalid credentials");
+  }
+
+  // Best-effort: a failed timestamp write must not block a valid login.
+  pool
+    .query("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1", [user.id])
+    .catch((error) => console.warn("Could not record last_login:", error.message));
+
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    displayName: user.display_name,
+    isAdmin: user.is_admin,
+    isActive: user.is_active,
+  };
+}
+
+/**
+ * Creates the first administrator on an empty database.
+ *
+ * Replaces the previous approach of seeding a fixed `admin` / `admin123`
+ * account from database.sql with a published bcrypt hash. Runs on every boot
+ * but does nothing once any admin exists, so it is safe to leave enabled.
+ */
+export async function bootstrapAdminUser() {
+  if (config.auth.bypass) return;
+
+  const existing = await pool.query(
+    "SELECT id FROM users WHERE is_admin = TRUE LIMIT 1"
+  );
+  if (existing.rows.length > 0) return;
+
+  const { bootstrapAdminUsername, bootstrapAdminPassword, bootstrapAdminEmail } =
+    config.auth;
+
+  if (!bootstrapAdminPassword) {
+    console.warn(
+      "\nNo administrator account exists and BOOTSTRAP_ADMIN_PASSWORD is unset.\n" +
+        "Set it in .env and restart to create the first admin account.\n"
+    );
+    return;
+  }
+
+  await registerUser(
+    bootstrapAdminUsername,
+    bootstrapAdminEmail,
+    bootstrapAdminPassword,
+    bootstrapAdminUsername,
+    true
+  );
+
+  console.log(`Created initial administrator account "${bootstrapAdminUsername}"`);
 }
 
 // Get user by ID
 export async function getUserById(userId, session = null) {
   // BYPASS MODE - return user data from session
-  if (process.env.BYPASS_AUTH === 'true' && session) {
+  if (config.auth.bypass && session) {
     return {
       id: session.userId || 1,
       username: session.username || 'user',

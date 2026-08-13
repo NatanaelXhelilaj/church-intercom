@@ -1,77 +1,233 @@
+# Church Intercom — LAN appliance deployment.
+#
+# Two design decisions drive this file:
+#
+#  1. The app runs on the HOST network. WebRTC needs a wide UDP range, and
+#     publishing 200 ports through Docker's bridge starts slowly, adds a NAT
+#     hop, and breaks mediasoup's ICE candidates unless announcedIp is exactly
+#     right. Host networking removes the entire class of problem.
+#
+#  2. Postgres stays on a bridge network, published only to 127.0.0.1. It is
+#     reachable by the app over loopback but never exposed to the LAN.
+
 services:
-  # PostgreSQL Database
   postgres:
+    # Pinned to 15 because the existing postgres_data volume was initialized by
+    # PostgreSQL 15, and a major version will not start on an older data
+    # directory. Moving to 16 means a dump/restore, not an image bump.
     image: postgres:15-alpine
-    container_name: church-intercom-db
+    container_name: intercom-db
+    restart: unless-stopped
+
     environment:
-      POSTGRES_DB: church_intercom
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-church_intercom}
+      POSTGRES_USER: ${DB_USER:-intercom}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      # Skip the fsync-heavy default init; the schema is tiny.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+
+    # Bound to loopback so the database is never reachable from the LAN.
+    # The host-side port is configurable because the app reaches Postgres over
+    # loopback (it runs on the host network), so a Postgres already installed
+    # on the host would otherwise collide and block startup.
+    ports:
+      - "127.0.0.1:${DB_PUBLISHED_PORT:-5432}:5432"
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database.sql:/docker-entrypoint-initdb.d/01-schema.sql
-    ports:
-      - "5433:5432"  # Using 5433 externally to avoid conflicts with local PostgreSQL
+      - ./database.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+
+    command:
+      - postgres
+      # --- USB flash endurance tuning -------------------------------------
+      # This database holds a handful of users and their sessions. The default
+      # write behaviour is tuned for spinning disks under real load and burns
+      # far more flash write cycles than this workload justifies.
+      #
+      # Note on what is deliberately NOT changed: full_page_writes stays ON.
+      # Turning it off would cut writes further but allows torn pages on power
+      # loss, and a USB-stick appliance loses power without warning. Data
+      # checksums detect that corruption but cannot repair it.
+      #
+      # synchronous_commit=off is the safe trade instead: on an unclean
+      # shutdown the last fraction of a second of commits may be lost, but the
+      # database never corrupts. Losing a session row is a re-login; losing the
+      # cluster is a Sunday morning outage.
+      - -c
+      - synchronous_commit=off
+      - -c
+      - wal_compression=on
+      - -c
+      - min_wal_size=32MB
+      - -c
+      - max_wal_size=128MB            # cap WAL growth on a small stick
+      - -c
+      - checkpoint_timeout=30min      # fewer, larger flushes
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - bgwriter_delay=1000ms
+      - -c
+      - log_min_duration_statement=-1 # no statement logging
+      - -c
+      - logging_collector=off         # let Docker handle (and cap) the logs
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - max_connections=30
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-intercom} -d ${DB_NAME:-church_intercom}"]
+      interval: 15s
       timeout: 5s
       retries: 5
-    networks:
-      - church-intercom-network
+      start_period: 30s
 
-  # Church Intercom Application
+    # Without caps, Docker's json logs grow unbounded and eventually fill the
+    # stick, which takes down the whole machine rather than just one service.
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+    networks:
+      - intercom
+
   app:
-    build: .
-    container_name: church-intercom-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: church-intercom:latest
+    container_name: intercom-app
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # See note at the top of this file. Published `ports:` are intentionally
+    # absent — they are ignored under host networking.
+    network_mode: host
+
+    # The USB audio interface. Remove this block (and set
+    # AUDIO_CAPTURE_ENABLED=false) on a machine with no sound card, otherwise
+    # the container will not start.
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - "${AUDIO_GID:-29}"   # Debian's `audio` group owns /dev/snd/*
+
+    environment:
+      NODE_ENV: production
+      PORT: ${PORT:-3443}
+      HTTPS: ${HTTPS:-true}
+      SSL_KEY_PATH: /app/certs/ssl_key.pem
+      SSL_CERT_PATH: /app/certs/ssl_cert.pem
+
+      # Leave ANNOUNCED_IP unset to let the server auto-detect the LAN address.
+      # Set it explicitly only if this machine has more than one network card.
+      ANNOUNCED_IP: ${ANNOUNCED_IP:-}
+
+      RTP_PORT_MIN: ${RTP_PORT_MIN:-40000}
+      RTP_PORT_MAX: ${RTP_PORT_MAX:-40199}
+
+      DB_HOST: 127.0.0.1
+      DB_PORT: ${DB_PUBLISHED_PORT:-5432}
+      DB_NAME: ${DB_NAME:-church_intercom}
+      DB_USER: ${DB_USER:-intercom}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set in .env}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+
+      ROOMS: ${ROOMS:-}
+
+      AUDIO_CAPTURE_ENABLED: ${AUDIO_CAPTURE_ENABLED:-true}
+      AUDIO_CAPTURE_DEVICE: ${AUDIO_CAPTURE_DEVICE:-hw:1,0}
+      AUDIO_CAPTURE_CHANNELS: ${AUDIO_CAPTURE_CHANNELS:-2}
+      AUDIO_CHANNEL_1_NAME: ${AUDIO_CHANNEL_1_NAME:-Program}
+      AUDIO_CHANNEL_2_NAME: ${AUDIO_CHANNEL_2_NAME:-Talkback}
+      AUDIO_PLAYBACK_ENABLED: ${AUDIO_PLAYBACK_ENABLED:-true}
+      AUDIO_PLAYBACK_DEVICE: ${AUDIO_PLAYBACK_DEVICE:-hw:1,0}
+
+      DEBUG_AUDIO: ${DEBUG_AUDIO:-false}
+
+    volumes:
+      - ./certs:/app/certs:ro
+
+    # SDP handoff files are written here. Keeping /tmp in RAM avoids pointless
+    # flash writes and guarantees no stale files survive a crash.
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Long enough for the graceful shutdown path to stop ffmpeg, close the
+    # mediasoup worker, and drain the pool before Docker sends SIGKILL.
+    stop_grace_period: 20s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Nightly logical backup. A pg_dump is recoverable from a corrupted data
+  # directory, which a volume snapshot on the same failing stick is not.
+  backup:
+    # Matches the server major version above, so pg_dump output restores cleanly.
+    image: postgres:15-alpine
+    container_name: intercom-backup
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      # Server configuration
-      PORT: ${PORT:-3000}
-      HTTPS: ${HTTPS:-false}
-      ANNOUNCED_IP: ${ANNOUNCED_IP:-127.0.0.1}
-
-      # Bitrate settings
-      MAX_INCOMING_BITRATE: ${MAX_INCOMING_BITRATE:-800000}
-      INITIAL_AVAILABLE_BITRATE: ${INITIAL_AVAILABLE_BITRATE:-1000000}
-
-      # Database connection (using docker service name)
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: church_intercom
-      DB_USER: postgres
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_POOL_MAX: ${DB_POOL_MAX:-20}
-      DB_IDLE_TIMEOUT: ${DB_IDLE_TIMEOUT:-30000}
-      DB_CONNECTION_TIMEOUT: ${DB_CONNECTION_TIMEOUT:-5000}
-
-      # Session configuration
-      SESSION_SECRET: ${SESSION_SECRET:-change-this-secret-in-production}
-
-      # Audio streaming features (optional)
-      SERVER_AUDIO_COMMAND: ${SERVER_AUDIO_COMMAND:-}
-      SERVER_AUDIO_NAME: ${SERVER_AUDIO_NAME:-House Feed}
-      SERVER_AUDIO_PAYLOAD_TYPE: ${SERVER_AUDIO_PAYLOAD_TYPE:-100}
-      ADMIN_TO_SERVER_COMMAND: ${ADMIN_TO_SERVER_COMMAND:-}
-    ports:
-      - "3000:3000"
-      - "3443:3443"  # HTTPS port
-      # mediasoup RTP port range
-      - "40000-40100:40000-40100/udp"
-      - "40000-40100:40000-40100/tcp"
+      PGHOST: postgres
+      PGUSER: ${DB_USER:-intercom}
+      PGPASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      PGDATABASE: ${DB_NAME:-church_intercom}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
     volumes:
-      # Mount certificates if using HTTPS
-      - ./certs:/app/certs:ro
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Backup service started; dumping daily at 03:00."
+        while true; do
+          now=$$(date +%s)
+          next=$$(date -d "tomorrow 03:00" +%s 2>/dev/null || echo $$((now + 86400)))
+          sleep $$((next - now))
+          stamp=$$(date +%Y%m%d-%H%M%S)
+          if pg_dump --no-owner --clean --if-exists \
+               | gzip -9 > "/backups/intercom-$$stamp.sql.gz.tmp"; then
+            mv "/backups/intercom-$$stamp.sql.gz.tmp" "/backups/intercom-$$stamp.sql.gz"
+            echo "Backup written: intercom-$$stamp.sql.gz"
+            find /backups -name 'intercom-*.sql.gz' -mtime +$$BACKUP_RETENTION_DAYS -delete
+          else
+            echo "Backup FAILED at $$stamp" >&2
+            rm -f "/backups/intercom-$$stamp.sql.gz.tmp"
+          fi
+        done
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "2"
     networks:
-      - church-intercom-network
-    restart: unless-stopped
+      - intercom
 
 volumes:
   postgres_data:
     driver: local
 
 networks:
-  church-intercom-network:
+  intercom:
     driver: bridge

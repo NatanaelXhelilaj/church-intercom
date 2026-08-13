@@ -1,0 +1,40 @@
+# systemd unit for the Church Intercom appliance.
+#
+#   sudo cp deploy/church-intercom.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now church-intercom
+#
+# Compose's `restart: unless-stopped` already brings containers back after a
+# reboot. This unit exists for two things it cannot do: guarantee the stack
+# starts only after the network and the USB sound card have settled, and give
+# whoever is on duty a single obvious command (`systemctl restart
+# church-intercom`) instead of remembering docker syntax.
+
+[Unit]
+Description=Church Intercom (audio intercom for production teams)
+Documentation=file:///opt/church-intercom/DEPLOY.md
+Requires=docker.service
+After=docker.service network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/church-intercom
+
+# Building on the appliance would need the toolchain and a lot of USB writes.
+# Pull or load a prebuilt image instead; see DEPLOY.md.
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose restart
+
+# A cold boot from a USB stick can be slow. Do not give up on it.
+TimeoutStartSec=0
+
+# If the stack somehow exits, keep trying rather than leaving the building
+# without an intercom.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

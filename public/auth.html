@@ -2,8 +2,17 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Church Intercom — Login or Register</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <!-- Present on the login page too, so installing from here still yields the
+       correct icon and a standalone window rather than a browser tab. -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#4059ff" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Intercom" />
+  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <title>Church Intercom — Sign in</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -214,12 +223,7 @@
   <div class="auth-container">
     <div class="auth-header">
       <h1>Church Intercom</h1>
-      <p>Sign in or create an account to continue</p>
-    </div>
-
-    <div class="tabs">
-      <button class="tab active" data-tab="login">Login</button>
-      <button class="tab" data-tab="register">Register</button>
+      <p>Sign in to continue</p>
     </div>
 
     <div id="loginSection" class="form-section active">
@@ -234,139 +238,56 @@
             name="usernameOrEmail"
             required
             autocomplete="username"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
             placeholder="Enter your username"
+          />
+        </div>
+
+        <div class="field-group">
+          <label class="field-label" for="loginPassword">Password</label>
+          <input
+            type="password"
+            id="loginPassword"
+            name="password"
+            required
+            autocomplete="current-password"
+            placeholder="Enter your password"
           />
         </div>
 
         <button type="submit" id="loginBtn">Login</button>
       </form>
-    </div>
 
-    <div id="registerSection" class="form-section">
-      <div id="registerError" class="error-message"></div>
-
-      <form id="registerForm">
-        <div class="field-group">
-          <label class="field-label" for="registerUsername">Username</label>
-          <input
-            type="text"
-            id="registerUsername"
-            name="username"
-            required
-            autocomplete="username"
-            placeholder="Choose a username"
-            pattern="[a-zA-Z0-9_-]{3,50}"
-          />
-          <div class="help-text">3-50 characters, letters, numbers, underscores, or hyphens</div>
-        </div>
-
-        <div class="field-group">
-          <label class="field-label" for="registerEmail">Email</label>
-          <input
-            type="email"
-            id="registerEmail"
-            name="email"
-            required
-            autocomplete="email"
-            placeholder="your.email@example.com"
-          />
-        </div>
-
-        <div class="field-group">
-          <label class="field-label" for="registerDisplayName">Display Name</label>
-          <input
-            type="text"
-            id="registerDisplayName"
-            name="displayName"
-            required
-            autocomplete="name"
-            placeholder="Your full name"
-            maxlength="60"
-          />
-        </div>
-
-        <div class="field-group">
-          <label class="field-label" for="registerPassword">Password</label>
-          <input
-            type="password"
-            id="registerPassword"
-            name="password"
-            required
-            autocomplete="new-password"
-            placeholder="Choose a strong password"
-            minlength="8"
-          />
-          <div class="help-text">At least 8 characters</div>
-        </div>
-
-        <div class="field-group">
-          <label class="field-label" for="registerPasswordConfirm">Confirm Password</label>
-          <input
-            type="password"
-            id="registerPasswordConfirm"
-            name="passwordConfirm"
-            required
-            autocomplete="new-password"
-            placeholder="Re-enter your password"
-          />
-        </div>
-
-        <button type="submit" id="registerBtn">Create Account</button>
-      </form>
+      <p class="help-text" style="margin-top: 18px; text-align: center;">
+        Accounts are created by an administrator. Ask your production lead if
+        you need one.
+      </p>
     </div>
   </div>
 
   <script type="module">
-    const tabs = document.querySelectorAll('.tab');
-    const loginSection = document.getElementById('loginSection');
-    const registerSection = document.getElementById('registerSection');
+    // Self-registration was removed: an intercom is not a public service, so
+    // accounts are created by an administrator. This page only signs in.
     const loginForm = document.getElementById('loginForm');
-    const registerForm = document.getElementById('registerForm');
     const loginError = document.getElementById('loginError');
-    const registerError = document.getElementById('registerError');
     const loginBtn = document.getElementById('loginBtn');
-    const registerBtn = document.getElementById('registerBtn');
+    const password = document.getElementById('loginPassword');
 
-    // Tab switching
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        tabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-
-        const targetTab = tab.dataset.tab;
-        if (targetTab === 'login') {
-          loginSection.classList.add('active');
-          registerSection.classList.remove('active');
-          loginError.classList.remove('visible');
-        } else {
-          loginSection.classList.remove('active');
-          registerSection.classList.add('active');
-          registerError.classList.remove('visible');
-        }
-      });
-    });
-
-    // Show error message
-    function showError(element, message) {
-      element.textContent = message;
-      element.classList.add('visible');
+    function showError(message) {
+      loginError.textContent = message;
+      loginError.classList.add('visible');
     }
 
-    // Hide error message
-    function hideError(element) {
-      element.classList.remove('visible');
-    }
+    loginForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      loginError.classList.remove('visible');
 
-    // Login form submission
-    loginForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      hideError(loginError);
-
-      const formData = new FormData(loginForm);
-      const data = Object.fromEntries(formData.entries());
+      const data = Object.fromEntries(new FormData(loginForm).entries());
 
       loginBtn.disabled = true;
-      loginBtn.textContent = 'Logging in...';
+      loginBtn.textContent = 'Signing in…';
 
       try {
         const response = await fetch('/api/login', {
@@ -376,62 +297,22 @@
           credentials: 'include',
         });
 
-        const result = await response.json();
+        const result = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(result.error || 'Login failed');
+          throw new Error(result.error || 'Sign in failed');
         }
 
-        // Redirect to main app
         window.location.href = '/';
       } catch (error) {
-        showError(loginError, error.message);
+        showError(error.message);
+        // Clear only the password so a mistyped one does not mean retyping the
+        // username on a phone keyboard.
+        password.value = '';
+        password.focus();
       } finally {
         loginBtn.disabled = false;
         loginBtn.textContent = 'Login';
-      }
-    });
-
-    // Register form submission
-    registerForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      hideError(registerError);
-
-      const formData = new FormData(registerForm);
-      const data = Object.fromEntries(formData.entries());
-
-      // Validate password confirmation
-      if (data.password !== data.passwordConfirm) {
-        showError(registerError, 'Passwords do not match');
-        return;
-      }
-
-      delete data.passwordConfirm;
-
-      registerBtn.disabled = true;
-      registerBtn.textContent = 'Creating account...';
-
-      try {
-        const response = await fetch('/api/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-          credentials: 'include',
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(result.error || 'Registration failed');
-        }
-
-        // Redirect to main app
-        window.location.href = '/';
-      } catch (error) {
-        showError(registerError, error.message);
-      } finally {
-        registerBtn.disabled = false;
-        registerBtn.textContent = 'Create Account';
       }
     });
   </script>

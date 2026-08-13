@@ -1,0 +1,56 @@
+# systemd unit for the bare-metal Church Intercom appliance (no Docker).
+#
+# Installed by deploy/appliance/install.sh -- see that script and README.md.
+#
+# The box lives in a rack, boots with no screen and nobody logged in, and is
+# powered off most of the week. Everything here exists so that plugging it in is
+# the entire startup procedure.
+
+[Unit]
+Description=Church Intercom (audio intercom for production teams)
+Documentation=file:///home/ubuntu/church-intercom/README.md
+
+# Wait for a real IP: the start wrapper reads the LAN address off the interface
+# and mediasoup can only advertise what exists at launch. sound.target lands
+# after the USB/HDA sound cards are enumerated.
+After=network-online.target sound.target
+Wants=network-online.target
+
+# Never stop retrying. A rate limit here would mean a transient fault at 09:00
+# on Sunday leaves the building with no intercom until someone SSHes in.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+
+# Audio capture and playback go through ALSA. When the machine boots headless
+# nobody logs in on seat0, so logind never grants the ACL on /dev/snd/* that an
+# interactive session would -- membership of the audio group is what makes the
+# sound card reachable from an unattended service.
+SupplementaryGroups=audio
+
+WorkingDirectory=/home/ubuntu/church-intercom
+EnvironmentFile=/etc/church-intercom.env
+ExecStart=/usr/local/bin/church-intercom-run
+
+Restart=always
+RestartSec=5
+
+# A cold boot from a spinning disk plus DHCP can be slow; do not give up.
+TimeoutStartSec=0
+
+# The server spawns ffmpeg for the house feed. The default control-group kill
+# takes those children down with it, so a restart does not leave an orphan
+# holding the sound card open.
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=church-intercom
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Run the Church Intercom health check regularly
+
+[Timer]
+# Twice daily, plus a Saturday evening run. The Saturday check is the important
+# one: it leaves a whole evening to fix whatever it finds before a service.
+OnCalendar=*-*-* 08,20:00:00
+OnCalendar=Sat *-*-* 18:00:00
+
+# Spread the load and survive a machine that was powered off at the due time.
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

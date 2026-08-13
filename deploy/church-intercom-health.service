@@ -1,0 +1,12 @@
+[Unit]
+Description=Church Intercom health check
+After=church-intercom.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/church-intercom
+ExecStart=/opt/church-intercom/deploy/health-report.sh
+
+# Uncomment and adapt to be actively notified rather than having to read the
+# journal. Any command that takes the message as its last argument works.
+# Environment=INTERCOM_ALERT_CMD=curl -s -X POST https://ntfy.sh/your-topic -d

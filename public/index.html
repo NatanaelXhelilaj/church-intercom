@@ -452,6 +452,14 @@
         width: 100%;
         text-align: left;
       }
+
+      /* The fader is the thing people actually aim at on a phone, so it gets
+         its own row above the chips rather than a 190px sliver beside them. */
+      .mic-meter-row .gate-meter {
+        order: -1;
+        flex-basis: 100%;
+        height: 30px;
+      }
     }
 
     @media (prefers-color-scheme: dark) {
@@ -487,7 +495,181 @@
         background: rgba(226, 232, 240, 0.12);
       }
     }
+
+    .feed-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .feed-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface-strong);
+    }
+
+    .feed-row .feed-name {
+      font-weight: 600;
+      flex: 1;
+      min-width: 120px;
+    }
+
+    .feed-row input[type="range"] {
+      width: 120px;
+    }
+
+    .banner {
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      background: rgba(248, 113, 113, 0.15);
+      color: #b91c1c;
+      border: 1px solid rgba(248, 113, 113, 0.35);
+    }
+
+    /* ---- level meters and speaking indicators ---- */
+
+    .meter {
+      position: relative;
+      flex: 1;
+      min-width: 80px;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.12);
+      overflow: hidden;
+    }
+
+    .meter-fill {
+      position: absolute;
+      inset: 0 100% 0 0;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #22c55e, #eab308 70%, #ef4444);
+      transition: right 90ms linear;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .meter { background: rgba(226, 232, 240, 0.16); }
+    }
+
+    .peer-card.speaking {
+      border-color: #22c55e;
+      box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
+    }
+
+    .speaking-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.18);
+      flex-shrink: 0;
+      transition: background 120ms linear;
+    }
+
+    .speaking-dot.on { background: #22c55e; }
+
+    .peer-volume {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .peer-volume input[type="range"] { flex: 1; }
+
+    .mic-meter-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    /* The mic meter doubles as the gate fader, so it is tall enough to grab. */
+    .gate-meter {
+      height: 24px;
+      border-radius: 8px;
+      cursor: ew-resize;
+      touch-action: none;
+      min-width: 160px;
+    }
+
+    .gate-meter .meter-fill {
+      border-radius: 8px 0 0 8px;
+      transition: right 60ms linear;
+    }
+
+    .gate-meter.closed .meter-fill {
+      opacity: 0.4;
+      filter: grayscale(0.7);
+    }
+
+    .gate-meter:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--primary-soft);
+    }
+
+    .gate-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 10px;
+      margin-left: -5px;
+      background: var(--text);
+      border-left: 2px solid var(--surface-strong);
+      border-right: 2px solid var(--surface-strong);
+      pointer-events: none;
+    }
+
+    .gate-meter[aria-disabled="true"] {
+      cursor: default;
+    }
+
+    .gate-meter[aria-disabled="true"] .gate-handle {
+      display: none;
+    }
+
+    .gate-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .status-chip.open {
+      background: rgba(34, 197, 94, 0.18);
+      color: #166534;
+    }
+
+    .reconnecting {
+      background: rgba(234, 179, 8, 0.18);
+      color: #92400e;
+      border: 1px solid rgba(234, 179, 8, 0.4);
+    }
+
+    .ptt-hint {
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    button.latched {
+      background: #16a34a;
+      color: white;
+    }
+
+    button.latched:hover:not(:disabled) { background: #15803d; }
   </style>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#4059ff" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Intercom" />
+  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+  <link rel="icon" href="/icons/icon-192.png" />
 </head>
 <body>
   <div class="app-shell">
@@ -496,36 +678,23 @@
       <p>Join an audio room to coordinate from any device.</p>
     </header>
 
+    <div id="fatalBanner" class="banner hidden"></div>
+
     <section class="panel join-panel">
       <div class="panel-header">
         <h2>Join a room</h2>
-        <span class="subtle">Enter your name, pick a room, and hop in.</span>
+        <span class="subtle">Pick a room and hop in.</span>
       </div>
       <div class="field-group">
-        <label class="field-label" for="displayName">Display name</label>
-        <input
-          type="text"
-          id="displayName"
-          maxlength="60"
-          autocomplete="name"
-          autocapitalize="words"
-          spellcheck="false"
-          readonly
-          style="background: rgba(15, 23, 42, 0.05); cursor: default;"
-        />
+        <label class="field-label" for="displayName">Signed in as</label>
+        <input type="text" id="displayName" readonly
+               style="background: rgba(15, 23, 42, 0.05); cursor: default;" />
       </div>
       <div class="field-group">
         <span class="field-label">Room</span>
         <div class="room-picker">
-          <button
-            id="openRoomModal"
-            type="button"
-            class="secondary"
-            aria-haspopup="dialog"
-            aria-controls="roomModal"
-          >
-            Pick a room
-          </button>
+          <button id="openRoomModal" type="button" class="secondary"
+                  aria-haspopup="dialog" aria-controls="roomModal">Pick a room</button>
           <span id="selectedRoomLabel" class="subtle">No room selected yet</span>
         </div>
       </div>
@@ -538,16 +707,34 @@
 
     <section id="locals" class="panel mic-panel">
       <div class="panel-header">
-        <h2>Local Microphone</h2>
-        <span id="localName" class="subtle">Name not set</span>
+        <h2>Your Microphone</h2>
+        <span id="localName" class="subtle">Not connected</span>
       </div>
-      <div class="mic-status">
+      <div class="mic-meter-row">
         <span id="micStatus" class="status-chip offline">Disconnected</span>
+        <div id="micMeter" class="meter gate-meter" role="slider" tabindex="0"
+             aria-label="Noise gate threshold" aria-valuemin="-70" aria-valuemax="0"
+             aria-valuenow="-45" aria-valuetext="-45 decibels">
+          <div id="micMeterFill" class="meter-fill"></div>
+          <div id="gateHandle" class="gate-handle"></div>
+        </div>
+        <span id="heardChip" class="status-chip offline">Not heard</span>
       </div>
+      <div class="gate-row">
+        <span id="gateChip" class="status-chip offline">Gate closed</span>
+        <span class="subtle">Opens above <output id="gateValue">-45 dB</output></span>
+        <label class="toggle">
+          <input type="checkbox" id="gateEnabled" checked />
+          <span>Noise gate</span>
+        </label>
+      </div>
+      <span class="ptt-hint">Drag the marker on the meter to set your gate — your mic only goes
+        out while the bar is past it.</span>
       <div class="local-controls">
         <button id="mute" disabled>Mute Mic</button>
         <button id="pushToTalk" disabled>Push to Talk</button>
       </div>
+      <span class="ptt-hint">Hold to talk, or tap once to latch it on. Headset buttons work too.</span>
       <div id="deviceSelectors" class="device-selectors">
         <div class="field-group">
           <label class="field-label" for="inputDeviceSelect">Input device</label>
@@ -557,725 +744,925 @@
           <label class="field-label" for="outputDeviceSelect">Output device</label>
           <select id="outputDeviceSelect"></select>
         </div>
-        <span id="outputSupportNote" class="subtle hidden">Selecting an output device isn't supported in this browser.</span>
+        <span id="outputSupportNote" class="subtle hidden">Choosing an output device isn't supported in this browser.</span>
       </div>
     </section>
 
-    <section id="houseFeed" class="panel house-feed-panel hidden" aria-live="polite">
+    <section id="feedsPanel" class="panel hidden" aria-live="polite">
       <div class="panel-header">
-        <h2>House Feed</h2>
-        <span id="houseFeedSubtitle" class="subtle">Streamed from the server audio input to you only.</span>
+        <h2>Room Feeds</h2>
+        <span class="subtle">Live inputs from the sound desk.</span>
       </div>
-      <div class="house-feed-body">
-        <span id="houseFeedStatus" class="status-chip offline">Offline</span>
-        <div class="house-feed-actions">
-          <button id="houseFeedToggle" class="secondary">Start house feed</button>
-        </div>
-      </div>
-      <p id="houseFeedHelp" class="subtle house-feed-help">Toggle to stream venue audio to your device. This is a personal feed.</p>
+      <div id="feedList" class="feed-list"></div>
+      <p class="subtle" id="feedHelp">Each input is independent — listen to either, or both.</p>
     </section>
 
-    <section id="adminToServer" class="panel house-feed-panel hidden" aria-live="polite">
+    <section id="playbackPanel" class="panel hidden" aria-live="polite">
       <div class="panel-header">
-        <h2>Stream to Server</h2>
-        <span id="adminToServerSubtitle" class="subtle">Stream your audio to the server speakers (Admin only).</span>
+        <h2>Talk to the Building</h2>
+        <span class="subtle">Send your microphone to the server's audio output (admin only).</span>
       </div>
       <div class="house-feed-body">
-        <span id="adminToServerStatus" class="status-chip offline">Offline</span>
+        <span id="playbackStatus" class="status-chip offline">Offline</span>
         <div class="house-feed-actions">
-          <button id="adminToServerToggle" class="secondary">Start streaming to server</button>
+          <button id="playbackToggle" class="secondary">Start output</button>
         </div>
       </div>
-      <p id="adminToServerHelp" class="subtle house-feed-help">Toggle to stream your microphone audio to the server's speakers/headphone jack.</p>
+      <p class="subtle house-feed-help">Only one person can hold the output at a time.</p>
     </section>
 
     <section id="remotes" class="panel participants-panel hidden">
       <div class="panel-header">
         <h2>Participants</h2>
-        <span class="subtle">Everyone else in your room will appear here.</span>
+        <span class="subtle">Everyone else in your room appears here.</span>
       </div>
       <div id="remoteList" class="peer-list" role="list"></div>
     </section>
   </div>
 
-  <div
-    id="roomModal"
-    class="modal-backdrop"
-    role="dialog"
-    aria-modal="true"
-    aria-hidden="true"
-    aria-labelledby="roomModalTitle"
-  >
+  <div id="roomModal" class="modal-backdrop" role="dialog" aria-modal="true"
+       aria-hidden="true" aria-labelledby="roomModalTitle">
     <div class="panel modal-panel">
       <div class="modal-header">
         <h2 id="roomModalTitle">Pick a room</h2>
         <button id="closeRoomModal" type="button" class="secondary">Close</button>
       </div>
-      <p class="subtle" id="roomModalDescription">Choose a room to join. You'll connect immediately after selecting.</p>
+      <p class="subtle" id="roomModalDescription">You'll connect immediately after selecting.</p>
       <div id="rooms" aria-describedby="roomModalDescription" aria-label="Available rooms"></div>
     </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <!--
+    mediasoup-client is served from /vendor as a self-contained bundle built at
+    image build time. It is deliberately NOT loaded from a CDN: this appliance
+    runs on a church LAN that may have no internet connection at all.
+  -->
+  <script src="/vendor/mediasoup-client.js"></script>
   <script type="module">
-    // Check authentication on page load
-    async function checkAuth() {
-      try {
-        const response = await fetch('/api/user', {
-          credentials: 'include',
-        });
+    'use strict';
 
-        if (!response.ok) {
-          // Not authenticated, redirect to login
-          window.location.href = '/auth.html';
-          return null;
-        }
+    const DEBUG = new URLSearchParams(location.search).has('debug');
+    const debug = (...args) => { if (DEBUG) console.log(...args); };
 
-        const user = await response.json();
-        return user;
-      } catch (error) {
-        console.error('Auth check failed:', error);
-        window.location.href = '/auth.html';
-        return null;
-      }
+    const el = (id) => document.getElementById(id);
+    const statusEl = el('status');
+    const fatalBanner = el('fatalBanner');
+
+    function fatal(message) {
+      fatalBanner.textContent = message;
+      fatalBanner.classList.remove('hidden');
     }
 
-    // Check auth before initializing the app
-    const currentUser = await checkAuth();
-    if (!currentUser) {
-      // Redirecting to login
-      throw new Error('Not authenticated');
+    function log(message) {
+      debug(message);
+      statusEl.textContent = message;
     }
 
-    console.log('Authenticated as:', currentUser.displayName, '(Admin:', currentUser.isAdmin, ')');
+    // ---------------------------------------------------------------- session
 
-    // do not statically import Device here — a failed import would block the whole module.
-    // We'll dynamically load it when actually joining a room.
-    let Device = null;
-    let deviceLoadPromise = null;
-
-    // Helper: load mediasoup-client Device, trying local vendor copies first and
-    // falling back to a CDN copy. We attempt both native ES module endpoints and
-    // UMD bundles so the app can recover even if only the minified browser build
-    // is available.
-    async function loadDeviceModule() {
-      if (Device) return Device;
-      if (deviceLoadPromise) return deviceLoadPromise;
-
-      const moduleSources = [
-        '/node_modules/mediasoup-client/lib/index.js',
-        'https://cdn.jsdelivr.net/npm/mediasoup-client@3/+esm',
-        'https://esm.sh/mediasoup-client@3.17.1?bundle',
-      ];
-      const scriptSources = [
-        '/vendor/mediasoup-client.min.js',
-        'https://cdn.jsdelivr.net/npm/mediasoup-client@3.17.1/lib/mediasoup-client.min.js',
-        'https://unpkg.com/mediasoup-client@3.17.1/lib/mediasoup-client.min.js',
-      ];
-
-      const errors = [];
-
-      async function tryModule(src) {
-        try {
-          const mod = await import(/* @vite-ignore */ src);
-          const exported = mod?.Device || mod?.default?.Device || mod?.default;
-          if (typeof exported !== 'function') throw new Error('Device export missing');
-          Device = exported;
-          return true;
-        } catch (err) {
-          console.warn(`Failed to load mediasoup-client module from ${src}`, err);
-          errors.push({ src, err });
-          return false;
-        }
-      }
-
-      async function tryScript(src) {
-        try {
-          await new Promise((resolve, reject) => {
-            const existing = document.querySelector(`script[data-mediasoup-src="${src}"]`);
-            if (existing && existing.dataset.loaded === 'true') return resolve();
-            if (existing && existing.dataset.loaded === 'error') {
-              existing.remove();
-            } else if (existing && existing.dataset.loaded === 'false') {
-              existing.addEventListener('load', resolve, { once: true });
-              existing.addEventListener('error', () => reject(new Error(`Failed loading script ${src}`)), { once: true });
-              return;
-            }
-            const script = document.createElement('script');
-            script.type = 'text/javascript';
-            script.async = true;
-            script.dataset.mediasoupSrc = src;
-            script.dataset.loaded = 'false';
-            script.addEventListener('load', () => {
-              script.dataset.loaded = 'true';
-              resolve();
-            });
-            script.addEventListener('error', () => {
-              script.dataset.loaded = 'error';
-              reject(new Error(`Failed loading script ${src}`));
-            });
-            script.src = src;
-            document.head.appendChild(script);
-          });
-          const candidate = window.mediasoupClient?.Device || window.mediasoupClient;
-          if (typeof candidate !== 'function') throw new Error('window.mediasoupClient.Device missing');
-          Device = candidate;
-          return true;
-        } catch (err) {
-          console.warn(`Failed to load mediasoup-client script from ${src}`, err);
-          errors.push({ src, err });
-          return false;
-        }
-      }
-
-      deviceLoadPromise = (async () => {
-        for (const src of moduleSources) {
-          if (await tryModule(src)) return Device;
-        }
-        for (const src of scriptSources) {
-          if (await tryScript(src)) return Device;
-        }
-        const error = new Error('Unable to load mediasoup-client');
-        error.details = errors.slice();
-        throw error;
-      })();
-
-      try {
-        return await deviceLoadPromise;
-      } finally {
-        if (!Device) deviceLoadPromise = null;
-      }
+    let currentUser;
+    try {
+      const response = await fetch('/api/user', { credentials: 'include' });
+      if (!response.ok) throw new Error('not authenticated');
+      currentUser = await response.json();
+    } catch {
+      window.location.href = '/auth.html';
+      throw new Error('redirecting to login');
     }
 
-    const ROOMS = [
-      'Video Production',
-      'media',
-      'bashkepunetoret',
-      'room4',
-      'room5',
-      'room6',
-      'room7',
-      'room8',
-    ];
-    const ROOM_LABELS = new Map([
-      ['Video Production', 'Video Production'],
-      ['media', 'media'],
-      ['bashkepunetoret', 'bashkepunetoret'],
-    ]);
-    const roomsDiv = document.getElementById('rooms');
-    const openRoomModalBtn = document.getElementById('openRoomModal');
-    const closeRoomModalBtn = document.getElementById('closeRoomModal');
-    const roomModal = document.getElementById('roomModal');
-    const selectedRoomLabel = document.getElementById('selectedRoomLabel');
-    const statusEl = document.getElementById('status');
-    const leaveBtn = document.getElementById('leave');
-    const logoutBtn = document.getElementById('logout');
-    const muteBtn = document.getElementById('mute');
-    const pushToTalkBtn = document.getElementById('pushToTalk');
-    const micStatusEl = document.getElementById('micStatus');
-    const remoteList = document.getElementById('remoteList');
-    const nameInput = document.getElementById('displayName');
-    const localNameEl = document.getElementById('localName');
-    const houseFeedPanel = document.getElementById('houseFeed');
-    const houseFeedStatus = document.getElementById('houseFeedStatus');
-    const houseFeedToggle = document.getElementById('houseFeedToggle');
-    const houseFeedHelp = document.getElementById('houseFeedHelp');
-    const houseFeedSubtitle = document.getElementById('houseFeedSubtitle');
-    const adminToServerPanel = document.getElementById('adminToServer');
-    const adminToServerStatus = document.getElementById('adminToServerStatus');
-    const adminToServerToggle = document.getElementById('adminToServerToggle');
-    const adminToServerHelp = document.getElementById('adminToServerHelp');
-    const adminToServerSubtitle = document.getElementById('adminToServerSubtitle');
-    const isDesktopClient = !/Android|webOS|iPhone|iPad|iPod|BlackBerry|Windows Phone/i.test(navigator.userAgent || '');
-    const canSelectOutputDevice =
-      typeof HTMLMediaElement !== 'undefined' && typeof HTMLMediaElement.prototype.setSinkId === 'function';
-    const audioElements = new Set();
-    const activeProducers = new Set();
-    let preferredInputDeviceId = '';
-    let preferredOutputDeviceId = '';
-    let lastFocusedBeforeModal = null;
-    let deviceRefreshPromise = null;
-    const deviceSelectors = document.getElementById('deviceSelectors');
-    const inputDeviceSelect = document.getElementById('inputDeviceSelect');
-    const outputDeviceSelect = document.getElementById('outputDeviceSelect');
-    const outputSelectorGroup = document.getElementById('outputSelectorGroup');
-    const outputSupportNote = document.getElementById('outputSupportNote');
-    const participantsPanel = document.querySelector('.participants-panel');
-    const SERVER_FEED_PREFIX = 'server-feed:';
-
-    function roomLabel(roomId) {
-      if (ROOM_LABELS.has(roomId)) {
-        return ROOM_LABELS.get(roomId);
-      }
-      const match = roomId && roomId.match(/^room(\d+)$/i);
-      if (match) {
-        return `Room ${match[1]}`;
-      }
-      return roomId || 'Room';
+    const Device = window.mediasoupClient?.Device;
+    if (typeof Device !== 'function') {
+      fatal('Could not load the audio engine (/vendor/mediasoup-client.js). ' +
+            'The server may need rebuilding.');
+      throw new Error('mediasoup-client missing');
     }
 
-    function updateSelectedRoom(roomId) {
-      if (selectedRoomLabel) {
-        selectedRoomLabel.textContent = roomId ? `Selected: ${roomLabel(roomId)}` : 'No room selected yet';
-      }
-    }
+    // ------------------------------------------------------------------ state
 
-    function isRoomModalOpen() {
-      return !!roomModal && roomModal.classList.contains('active');
-    }
-
-    function openRoomModal() {
-      if (!roomModal || isRoomModalOpen()) return;
-      lastFocusedBeforeModal = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      roomModal.classList.add('active');
-      roomModal.setAttribute('aria-hidden', 'false');
-      document.body?.classList.add('modal-open');
-      const firstButton = roomsDiv?.querySelector('button:not(:disabled)');
-      if (firstButton) {
-        setTimeout(() => firstButton.focus(), 0);
-      }
-    }
-
-    function closeRoomModal() {
-      if (!roomModal || !isRoomModalOpen()) return;
-      roomModal.classList.remove('active');
-      roomModal.setAttribute('aria-hidden', 'true');
-      document.body?.classList.remove('modal-open');
-      if (lastFocusedBeforeModal && typeof lastFocusedBeforeModal.focus === 'function') {
-        lastFocusedBeforeModal.focus();
-      }
-    }
-
-    for (const r of ROOMS) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      const prettyRoom = roomLabel(r);
-      btn.textContent = `Join ${prettyRoom}`;
-      btn.setAttribute('aria-label', `Join ${prettyRoom}`);
-      btn.onclick = () => {
-        updateSelectedRoom(r);
-        closeRoomModal();
-        joinRoom(r);
-      };
-      roomsDiv.appendChild(btn);
-    }
-
-    updateSelectedRoom(null);
-
-    if (openRoomModalBtn) {
-      openRoomModalBtn.addEventListener('click', () => {
-        if (openRoomModalBtn.disabled) return;
-        openRoomModal();
-      });
-    }
-
-    if (closeRoomModalBtn) {
-      closeRoomModalBtn.addEventListener('click', () => closeRoomModal());
-    }
-
-    roomModal?.addEventListener('click', (ev) => {
-      if (ev.target === roomModal) {
-        closeRoomModal();
-      }
-    });
-
-    document.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape' && isRoomModalOpen()) {
-        closeRoomModal();
-      }
-    });
+    const isAdmin = !!currentUser.isAdmin;
+    const displayName = currentUser.displayName;
 
     let socket = null;
     let device = null;
     let sendTransport = null;
     let recvTransport = null;
+    // The raw microphone, and the gated stream built from it. Producers always
+    // carry the gated one; the meter always measures the raw one.
     let localStream = null;
-    let producedIds = [];
-    const consuming = {};
+    let outboundStream = null;
+    let micGate = null;
+
     let micMuted = false;
     let pushToTalkActive = false;
+    let pushToTalkLatched = false;
     let headsetPressActive = false;
-    let isAdmin = currentUser.isAdmin;
-    let displayName = currentUser.displayName;
-    let joiningRoom = false;
-    let disconnectHandler = null;
-    let currentRoomId = null;
-    let houseFeedEnabled = false;
-    let houseFeedPending = false;
-    let houseFeedPeerId = '';
-    let houseFeedName = 'House Feed';
-    let adminToServerEnabled = false;
-    let adminToServerPending = false;
-    let adminToServerProducerId = null;
-    const peersInfo = new Map();
-    const peerCards = new Map();
-    const producerToPeer = new Map();
 
-    function shouldShowDeviceSelectors() {
-      return isDesktopClient && isAdmin && !!socket;
-    }
+    let currentRoom = null;
+    let leaving = false;
+    // Bumped on every teardown. Async work started before a teardown checks
+    // this and bails, so a slow transport negotiation from a dead connection
+    // cannot attach itself to the new one.
+    let mediaGeneration = 0;
 
-    function updateDeviceSelectorsVisibility() {
-      if (!deviceSelectors) return;
-      const show = shouldShowDeviceSelectors();
-      deviceSelectors.classList.toggle('active', show);
-      if (!show) {
-        return;
-      }
-      if (outputSelectorGroup) {
-        outputSelectorGroup.classList.toggle('hidden', !canSelectOutputDevice);
-      }
-      if (outputSupportNote) {
-        outputSupportNote.classList.toggle('hidden', canSelectOutputDevice);
-      }
-      refreshDeviceOptions();
-    }
+    let playbackEnabled = false;
+    let playbackPending = false;
 
-    function isServerFeedId(id) {
-      return typeof id === 'string' && id.startsWith(SERVER_FEED_PREFIX);
-    }
+    const peersInfo = new Map();      // socketId -> { name, admin }
+    const peerCards = new Map();      // socketId -> card record
+    const producerToPeer = new Map(); // producerId -> socketId
+    const consuming = new Map();      // producerId -> consumer
+    const activeProducers = new Set();
+    const audioElements = new Set();
+    const feedRows = new Map();       // feedId -> row record
 
-    function setHouseFeedStatus(state, label) {
-      if (!houseFeedStatus) return;
-      const classes = ['live', 'offline', 'pending', 'error'];
-      houseFeedStatus.classList.remove(...classes);
-      let text = label || '';
-      switch (state) {
-        case 'on':
-          houseFeedStatus.classList.add('live');
-          text = text || 'Streaming';
-          break;
-        case 'pending':
-          houseFeedStatus.classList.add('pending');
-          text = text || 'Starting…';
-          break;
-        case 'error':
-          houseFeedStatus.classList.add('error');
-          text = text || 'Unavailable';
-          break;
-        default:
-          houseFeedStatus.classList.add('offline');
-          text = text || 'Offline';
-          break;
-      }
-      houseFeedStatus.textContent = text;
-    }
+    let preferredInputDeviceId = '';
+    let preferredOutputDeviceId = '';
+    let lastFocusedBeforeModal = null;
+    let deviceRefreshPromise = null;
 
-    function updateHouseFeedControls() {
-      if (!houseFeedPanel) return;
-      const connected = !!socket;
-      houseFeedPanel.classList.toggle('hidden', !connected);
-      if (!connected) {
-        return;
-      }
+    const canSelectOutputDevice =
+      typeof HTMLMediaElement !== 'undefined' &&
+      typeof HTMLMediaElement.prototype.setSinkId === 'function';
+    const isDesktopClient =
+      !/Android|webOS|iPhone|iPad|iPod|BlackBerry|Windows Phone/i.test(navigator.userAgent || '');
 
-      if (houseFeedSubtitle) {
-        houseFeedSubtitle.textContent = 'Streamed from the server audio input to you only.';
-      }
+    el('displayName').value = displayName;
 
-      if (houseFeedToggle) {
-        houseFeedToggle.classList.remove('hidden');
-        houseFeedToggle.textContent = houseFeedEnabled ? 'Stop house feed' : 'Start house feed';
-        houseFeedToggle.disabled = houseFeedPending;
-      }
+    // ------------------------------------------------------------- wake lock
 
-      if (houseFeedHelp) {
-        houseFeedHelp.textContent = 'Toggle to stream venue audio to your device. This is a personal feed and does not affect other users.';
-        houseFeedHelp.classList.remove('hidden');
+    // A locked screen suspends the page and kills audio mid-service. This does
+    // not survive the user switching apps — no browser API can prevent that —
+    // but it does stop the far more common case of the screen simply timing out
+    // while the phone sits on a camera.
+    let wakeLock = null;
+
+    async function acquireWakeLock() {
+      if (!('wakeLock' in navigator) || wakeLock || !currentRoom) return;
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+        debug('wake lock acquired');
+      } catch (error) {
+        debug('wake lock refused', error);
       }
     }
 
-    function setAdminToServerStatus(state, label) {
-      if (!adminToServerStatus) return;
-      const classes = ['live', 'offline', 'pending', 'error'];
-      adminToServerStatus.classList.remove(...classes);
-      let text = label || '';
-      switch (state) {
-        case 'on':
-          adminToServerStatus.classList.add('live');
-          text = text || 'Streaming';
-          break;
-        case 'pending':
-          adminToServerStatus.classList.add('pending');
-          text = text || 'Starting…';
-          break;
-        case 'error':
-          adminToServerStatus.classList.add('error');
-          text = text || 'Unavailable';
-          break;
-        default:
-          adminToServerStatus.classList.add('offline');
-          text = text || 'Offline';
-          break;
-      }
-      adminToServerStatus.textContent = text;
+    function releaseWakeLock() {
+      wakeLock?.release?.().catch(() => {});
+      wakeLock = null;
     }
 
-    function updateAdminToServerControls() {
-      if (!adminToServerPanel) return;
-      const canControl = !!socket && isAdmin;
-      adminToServerPanel.classList.toggle('hidden', !canControl);
-      if (!canControl) {
-        return;
-      }
+    // The lock is dropped automatically whenever the page is hidden, so it has
+    // to be taken again each time the user comes back.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') acquireWakeLock();
+    });
 
-      if (adminToServerSubtitle) {
-        adminToServerSubtitle.textContent = 'Stream your audio to the server speakers (Admin only).';
-      }
+    // ------------------------------------------------------------------ rooms
 
-      if (adminToServerToggle) {
-        adminToServerToggle.classList.remove('hidden');
-        adminToServerToggle.textContent = adminToServerEnabled ? 'Stop streaming to server' : 'Start streaming to server';
-        adminToServerToggle.disabled = adminToServerPending || !localStream;
-      }
+    const roomsDiv = el('rooms');
+    const roomModal = el('roomModal');
+    const openRoomModalBtn = el('openRoomModal');
+    const selectedRoomLabel = el('selectedRoomLabel');
 
-      if (adminToServerHelp) {
-        adminToServerHelp.textContent = 'Toggle to stream your microphone audio to the server\'s speakers/headphone jack.';
-        adminToServerHelp.classList.remove('hidden');
-      }
+    function roomLabel(roomId) {
+      const match = roomId && roomId.match(/^room(\d+)$/i);
+      return match ? `Room ${match[1]}` : (roomId || 'Room');
     }
 
-    function updateParticipantsVisibility() {
-      if (!participantsPanel) return;
-      // Show participants panel when connected to a room (for everyone, not just admins)
-      // Admins will see additional controls (kick buttons) via updateKickButton logic
-      const shouldShow = !!socket;
-      participantsPanel.classList.toggle('hidden', !shouldShow);
-      updateHouseFeedControls();
-      updateAdminToServerControls();
+    let ROOMS = [];
+    try {
+      const response = await fetch('/api/rooms', { credentials: 'include' });
+      ROOMS = (await response.json()).rooms || [];
+    } catch {
+      fatal('Could not load the room list from the server.');
     }
 
-    function summarizeId(id) {
-      if (!id) return '';
-      const str = String(id);
-      if (str.length <= 12) return `ID • ${str}`;
-      return `ID • ${str.slice(0, 4)}…${str.slice(-4)}`;
+    for (const room of ROOMS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = `Join ${roomLabel(room)}`;
+      button.onclick = () => {
+        selectedRoomLabel.textContent = `Selected: ${roomLabel(room)}`;
+        closeRoomModal();
+        joinRoom(room);
+      };
+      roomsDiv.appendChild(button);
     }
 
-    function peerDisplayName(peerId, name) {
-      if (typeof name === 'string' && name.trim()) {
-        return name.trim();
-      }
-      if (!peerId) return 'Participant';
-      const tail = String(peerId).slice(-4);
-      return `Guest ${tail}`;
+    const isRoomModalOpen = () => roomModal.classList.contains('active');
+
+    function openRoomModal() {
+      if (isRoomModalOpen()) return;
+      lastFocusedBeforeModal = document.activeElement;
+      roomModal.classList.add('active');
+      roomModal.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('modal-open');
+      setTimeout(() => roomsDiv.querySelector('button:not(:disabled)')?.focus(), 0);
     }
 
-    function log(s) { console.log(s); statusEl.textContent = s; }
+    function closeRoomModal() {
+      if (!isRoomModalOpen()) return;
+      roomModal.classList.remove('active');
+      roomModal.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('modal-open');
+      lastFocusedBeforeModal?.focus?.();
+    }
+
+    openRoomModalBtn.addEventListener('click', () => {
+      if (!openRoomModalBtn.disabled) openRoomModal();
+    });
+    el('closeRoomModal').addEventListener('click', closeRoomModal);
+    roomModal.addEventListener('click', (ev) => {
+      if (ev.target === roomModal) closeRoomModal();
+    });
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && isRoomModalOpen()) closeRoomModal();
+    });
+
+    function setRoomButtonsDisabled(disabled) {
+      for (const button of roomsDiv.querySelectorAll('button')) button.disabled = disabled;
+      openRoomModalBtn.disabled = disabled;
+      if (disabled) closeRoomModal();
+    }
+
+    // ------------------------------------------------------------ audio output
 
     function applyOutputDeviceToElement(element) {
-      if (!canSelectOutputDevice || !element || typeof element.setSinkId !== 'function') return;
-      const targetId = preferredOutputDeviceId || 'default';
-      element.setSinkId(targetId).catch((err) => {
-        console.warn('Failed to set output device', err);
-      });
-    }
-
-    function applyOutputDeviceToAll() {
-      if (!canSelectOutputDevice) return;
-      for (const element of audioElements) {
-        applyOutputDeviceToElement(element);
-      }
+      if (!canSelectOutputDevice || typeof element?.setSinkId !== 'function') return;
+      element.setSinkId(preferredOutputDeviceId || 'default')
+        .catch((error) => console.warn('Could not set output device', error));
     }
 
     function registerAudioElement(element) {
-      if (!element) return;
       audioElements.add(element);
-      if (canSelectOutputDevice) {
-        applyOutputDeviceToElement(element);
-      }
+      applyOutputDeviceToElement(element);
     }
 
     function unregisterAudioElement(element) {
-      if (!element) return;
       audioElements.delete(element);
     }
 
-    async function switchInputDevice(deviceId) {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Media devices API unavailable');
+    // --------------------------------------------------------- local mic meter
+
+    // Exactly one AudioContext for the whole page, closed on leave. Browsers cap
+    // the number of live contexts, so one per stream eventually throws — which
+    // is precisely the leak that used to crash this client after a few peers.
+    let sharedAudioContext = null;
+    const micMeterFill = el('micMeterFill');
+
+    function audioContext() {
+      if (!sharedAudioContext) {
+        sharedAudioContext = new (window.AudioContext || window.webkitAudioContext)();
       }
-      const audioConstraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      };
-      if (deviceId) {
-        audioConstraints.deviceId = { exact: deviceId };
+      // Autoplay policy can leave it suspended; joining a room is a user
+      // gesture, so this succeeds in practice.
+      if (sharedAudioContext.state === 'suspended') {
+        sharedAudioContext.resume().catch(() => {});
       }
-      let newStream;
-      try {
-        newStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-      } catch (err) {
-        throw err;
-      }
-      const [newTrack] = newStream.getAudioTracks();
-      if (!newTrack) {
-        for (const track of newStream.getTracks()) {
-          try { track.stop(); } catch (e) {}
-        }
-        throw new Error('No audio track available for the selected device');
-      }
-      const oldStream = localStream;
-      localStream = newStream;
-      const settings = typeof newTrack.getSettings === 'function' ? newTrack.getSettings() : null;
-      preferredInputDeviceId = settings?.deviceId || deviceId || '';
-      applyLocalTrackState();
-      updateMicStatus();
-      const producers = Array.from(activeProducers);
-      for (let i = 0; i < producers.length; i++) {
-        const producer = producers[i];
-        const trackForProducer = i === 0 ? newTrack : newTrack.clone();
-        try {
-          await producer.replaceTrack({ track: trackForProducer });
-        } catch (err) {
-          console.warn('Failed to replace track for producer', err);
-        }
-      }
-      if (oldStream) {
-        for (const track of oldStream.getTracks()) {
-          try { track.stop(); } catch (e) {}
-        }
-      }
-      refreshDeviceOptions();
+      return sharedAudioContext;
     }
 
-    async function refreshDeviceOptions() {
-      if (!deviceSelectors || !shouldShowDeviceSelectors()) {
-        return;
+    /**
+     * Attaches a level meter to a stream. Returns a stop function.
+     *
+     * Analysers are cheap; the AudioContext is not, so every meter shares one.
+     */
+    function createMeter(stream, onLevel) {
+      let timer = null;
+      try {
+        const context = audioContext();
+        const source = context.createMediaStreamSource(stream);
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.6;
+        source.connect(analyser);
+
+        const samples = new Uint8Array(analyser.frequencyBinCount);
+        timer = setInterval(() => {
+          analyser.getByteFrequencyData(samples);
+          let sum = 0;
+          for (const value of samples) sum += value;
+          // Compress the top end so normal speech uses most of the bar.
+          onLevel(Math.min(100, Math.round((sum / samples.length / 90) * 100)));
+        }, 100);
+
+        return () => {
+          if (timer) clearInterval(timer);
+          try { source.disconnect(); } catch { /* already gone */ }
+          onLevel(0);
+        };
+      } catch (error) {
+        debug('meter unavailable', error);
+        return () => {};
       }
-      if (!navigator.mediaDevices?.enumerateDevices) {
-        return;
+    }
+
+    // -------------------------------------------------------------- noise gate
+
+    // Everyone gets a gate on their own microphone. A room full of open phone
+    // mics is unusable — fans, footsteps and pocket noise from a dozen devices
+    // pile up — so each client only sends audio once its own level clears a
+    // threshold the user sets by dragging a marker across their mic meter.
+
+    const GATE_FLOOR_DB = -70;      // bottom of the meter scale
+    const GATE_CEILING_DB = 0;      // top of the meter scale
+    const GATE_HYSTERESIS_DB = 4;   // extra drop required before closing again
+    const GATE_HOLD_MS = 300;       // keeps the gate open between syllables
+    const GATE_ATTACK = 0.008;      // gain ramp time constants, in seconds
+    const GATE_RELEASE = 0.12;      // slow enough that word endings do not clip
+    const GATE_DEFAULT_DB = -45;
+    const GATE_STORAGE_KEY = 'intercom.gate';
+
+    const clampDb = (db) => Math.min(GATE_CEILING_DB, Math.max(GATE_FLOOR_DB, db));
+    const dbToPercent = (db) =>
+      ((clampDb(db) - GATE_FLOOR_DB) / (GATE_CEILING_DB - GATE_FLOOR_DB)) * 100;
+    const percentToDb = (percent) =>
+      clampDb(GATE_FLOOR_DB + (percent / 100) * (GATE_CEILING_DB - GATE_FLOOR_DB));
+
+    const gateMeter = el('micMeter');
+    const gateHandle = el('gateHandle');
+    const gateChip = el('gateChip');
+    const gateValue = el('gateValue');
+    const gateEnabledInput = el('gateEnabled');
+
+    // A volunteer sets this once and expects it to stick for next Sunday.
+    function loadGateSettings() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(GATE_STORAGE_KEY) || '{}');
+        // Deliberately not Number(): Number(null) and Number('') are 0, and a
+        // threshold of 0 dB is a mic nobody can open.
+        const stored = saved.thresholdDb;
+        return {
+          thresholdDb: typeof stored === 'number' && Number.isFinite(stored)
+            ? clampDb(stored)
+            : GATE_DEFAULT_DB,
+          enabled: saved.enabled !== false,
+        };
+      } catch {
+        return { thresholdDb: GATE_DEFAULT_DB, enabled: true };
       }
-      if (deviceRefreshPromise) {
-        return deviceRefreshPromise;
+    }
+
+    const gateSettings = loadGateSettings();
+    let gateOpen = false;
+    let gateSupported = true;
+
+    function saveGateSettings() {
+      try {
+        localStorage.setItem(GATE_STORAGE_KEY, JSON.stringify(gateSettings));
+      } catch { /* private mode; the gate still works for this session */ }
+    }
+
+    function setMeterLevel(percent) {
+      micMeterFill.style.right = `${100 - Math.max(0, Math.min(100, percent))}%`;
+    }
+
+    function updateGateUi() {
+      gateHandle.style.left = `${dbToPercent(gateSettings.thresholdDb)}%`;
+      gateValue.textContent = `${Math.round(gateSettings.thresholdDb)} dB`;
+      gateMeter.setAttribute('aria-valuenow', String(Math.round(gateSettings.thresholdDb)));
+      gateMeter.setAttribute('aria-valuetext', `${Math.round(gateSettings.thresholdDb)} decibels`);
+      gateMeter.setAttribute('aria-disabled', gateSupported ? 'false' : 'true');
+
+      const passing = gateOpen && !!micGate;
+      gateMeter.classList.toggle('closed', gateSettings.enabled && !passing);
+
+      if (!gateSupported) {
+        gateChip.className = 'status-chip error';
+        gateChip.textContent = 'Gate unavailable';
+      } else if (!gateSettings.enabled) {
+        gateChip.className = 'status-chip muted';
+        gateChip.textContent = 'Gate off';
+      } else if (passing) {
+        gateChip.className = 'status-chip open';
+        gateChip.textContent = 'Gate open';
+      } else {
+        gateChip.className = 'status-chip offline';
+        gateChip.textContent = 'Gate closed';
       }
-      deviceRefreshPromise = (async () => {
-        let devices;
-        try {
-          devices = await navigator.mediaDevices.enumerateDevices();
-        } catch (err) {
-          console.warn('Failed to enumerate devices', err);
-          return;
+    }
+
+    function setGateThreshold(db) {
+      gateSettings.thresholdDb = Math.round(clampDb(db));
+      micGate?.setThreshold(gateSettings.thresholdDb);
+      updateGateUi();
+    }
+
+    /**
+     * The gate itself, running on the audio thread.
+     *
+     * This deliberately does not live on a timer. Browsers clamp timers in a
+     * backgrounded page to one tick per second, and a gate that only decides
+     * once a second would swallow the first word every time someone glances at
+     * another app. An AudioWorklet keeps deciding every 128 samples regardless.
+     */
+    const GATE_WORKLET_SOURCE = `
+      class MicGateProcessor extends AudioWorkletProcessor {
+        constructor(options) {
+          super();
+          const settings = options.processorOptions;
+          this.thresholdDb = settings.thresholdDb;
+          this.enabled = settings.enabled;
+          this.hold = settings.holdMs / 1000;
+          this.attack = settings.attack;
+          this.release = settings.release;
+          this.hysteresis = settings.hysteresis;
+          this.floorDb = settings.floorDb;
+
+          this.envelope = 0;
+          this.gain = 0;     // starts closed; never leak the room on join
+          this.open = false;
+          this.holdUntil = 0;
+          this.lastPost = 0;
+          this.gains = new Float32Array(128);
+
+          this.port.onmessage = (event) => {
+            const update = event.data || {};
+            if (typeof update.thresholdDb === 'number') this.thresholdDb = update.thresholdDb;
+            if (typeof update.enabled === 'boolean') this.enabled = update.enabled;
+          };
         }
-        const inputs = devices.filter((d) => d.kind === 'audioinput');
-        const outputs = devices.filter((d) => d.kind === 'audiooutput');
-        if (inputDeviceSelect) {
-          inputDeviceSelect.innerHTML = '';
-          const defaultOption = document.createElement('option');
-          defaultOption.value = '';
-          defaultOption.textContent = 'System default';
-          inputDeviceSelect.appendChild(defaultOption);
-          inputs.forEach((device, index) => {
-            const option = document.createElement('option');
-            option.value = device.deviceId;
-            option.textContent = device.label || `Microphone ${index + 1}`;
-            inputDeviceSelect.appendChild(option);
-          });
-          const currentTracks =
-            localStream && typeof localStream.getAudioTracks === 'function'
-              ? localStream.getAudioTracks()
-              : [];
-          const currentTrack = currentTracks[0];
-          const trackDeviceId =
-            currentTrack && typeof currentTrack.getSettings === 'function'
-              ? currentTrack.getSettings().deviceId
-              : '';
-          let targetInputId = preferredInputDeviceId || trackDeviceId || '';
-          const hasTarget = targetInputId && Array.from(inputDeviceSelect.options).some((o) => o.value === targetInputId);
-          if (hasTarget) {
-            inputDeviceSelect.value = targetInputId;
-          } else {
-            inputDeviceSelect.value = '';
-            if (targetInputId) {
-              preferredInputDeviceId = '';
-            }
+
+        process(inputs, outputs) {
+          const input = inputs[0];
+          const output = outputs[0];
+          if (!input || input.length === 0) {
+            for (const channel of output) channel.fill(0);
+            return true;
           }
-        }
-        if (outputSelectorGroup) {
-          outputSelectorGroup.classList.toggle('hidden', !canSelectOutputDevice);
-        }
-        if (outputSupportNote) {
-          outputSupportNote.classList.toggle('hidden', canSelectOutputDevice);
-        }
-        if (canSelectOutputDevice && outputDeviceSelect) {
-          outputDeviceSelect.innerHTML = '';
-          const defaultOption = document.createElement('option');
-          defaultOption.value = '';
-          defaultOption.textContent = 'System default';
-          outputDeviceSelect.appendChild(defaultOption);
-          outputs.forEach((device, index) => {
-            const option = document.createElement('option');
-            option.value = device.deviceId;
-            option.textContent = device.label || `Speaker ${index + 1}`;
-            outputDeviceSelect.appendChild(option);
-          });
-          const hasPreferredOutput =
-            preferredOutputDeviceId && Array.from(outputDeviceSelect.options).some((o) => o.value === preferredOutputDeviceId);
-          if (hasPreferredOutput) {
-            outputDeviceSelect.value = preferredOutputDeviceId;
-          } else {
-            outputDeviceSelect.value = '';
-            if (preferredOutputDeviceId) {
-              preferredOutputDeviceId = '';
-            }
+
+          const samples = input[0];
+          const frames = samples.length;
+
+          let sum = 0;
+          for (let i = 0; i < frames; i += 1) sum += samples[i] * samples[i];
+          const rms = Math.sqrt(sum / frames);
+
+          // Rise almost instantly, fall over ~50ms, so consonants do not make
+          // the gate chatter between blocks.
+          this.envelope += (rms - this.envelope) * (rms > this.envelope ? 0.7 : 0.05);
+          const db = this.envelope > 1e-7 ? 20 * Math.log10(this.envelope) : this.floorDb;
+
+          if (!this.enabled || db >= this.thresholdDb) {
+            this.open = true;
+            this.holdUntil = currentTime + this.hold;
+          } else if (this.open && currentTime >= this.holdUntil &&
+                     db < this.thresholdDb - this.hysteresis) {
+            this.open = false;
           }
-          applyOutputDeviceToAll();
+
+          const target = this.open ? 1 : 0;
+          const coefficient =
+            Math.exp(-1 / (sampleRate * (this.open ? this.attack : this.release)));
+
+          if (this.gains.length !== frames) this.gains = new Float32Array(frames);
+          for (let i = 0; i < frames; i += 1) {
+            this.gain = target + (this.gain - target) * coefficient;
+            this.gains[i] = this.gain;
+          }
+
+          for (let channel = 0; channel < output.length; channel += 1) {
+            const from = input[Math.min(channel, input.length - 1)];
+            const to = output[channel];
+            for (let i = 0; i < frames; i += 1) to[i] = from[i] * this.gains[i];
+          }
+
+          // The meter only needs to look alive; the audio never waits on it.
+          if (currentTime - this.lastPost >= 0.05) {
+            this.lastPost = currentTime;
+            this.port.postMessage({ db, open: this.open });
+          }
+          return true;
         }
-      })().finally(() => {
-        deviceRefreshPromise = null;
+      }
+
+      registerProcessor('mic-gate', MicGateProcessor);
+    `;
+
+    // One registration per AudioContext; registering the name twice throws.
+    let gateWorkletLoad = null;
+
+    function loadGateWorklet(context) {
+      if (gateWorkletLoad?.context === context) return gateWorkletLoad.promise;
+      const url = URL.createObjectURL(
+        new Blob([GATE_WORKLET_SOURCE], { type: 'application/javascript' })
+      );
+      const promise = context.audioWorklet.addModule(url)
+        .finally(() => URL.revokeObjectURL(url));
+      gateWorkletLoad = { context, promise };
+      return promise;
+    }
+
+    /**
+     * Wraps the microphone in the gate and hands back the stream to send. The
+     * meter reads the level the worklet reports, which is measured before the
+     * gate — the fader has to be set against the input, not against the result.
+     */
+    async function createMicGate(stream, onUpdate) {
+      const context = audioContext();
+      await loadGateWorklet(context);
+
+      const source = context.createMediaStreamSource(stream);
+      const node = new AudioWorkletNode(context, 'mic-gate', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+        processorOptions: {
+          thresholdDb: gateSettings.thresholdDb,
+          enabled: gateSettings.enabled,
+          holdMs: GATE_HOLD_MS,
+          attack: GATE_ATTACK,
+          release: GATE_RELEASE,
+          hysteresis: GATE_HYSTERESIS_DB,
+          floorDb: GATE_FLOOR_DB,
+        },
       });
-      return deviceRefreshPromise;
+      const destination = context.createMediaStreamDestination();
+
+      source.connect(node);
+      node.connect(destination);
+      node.port.onmessage = (event) => onUpdate(event.data.db, event.data.open);
+
+      return {
+        stream: destination.stream,
+        setThreshold(db) { node.port.postMessage({ thresholdDb: db }); },
+        setEnabled(value) { node.port.postMessage({ enabled: !!value }); },
+        stop() {
+          node.port.onmessage = null;
+          try { source.disconnect(); } catch { /* already gone */ }
+          try { node.disconnect(); } catch { /* already gone */ }
+          destination.stream.getTracks().forEach((track) => track.stop());
+        },
+      };
     }
 
-    function setRoomButtonsDisabled(state) {
-      for (const btn of roomsDiv.querySelectorAll('button')) {
-        btn.disabled = state;
-      }
-      if (openRoomModalBtn) {
-        openRoomModalBtn.disabled = state;
-      }
-      if (state) {
-        closeRoomModal();
-      }
-    }
+    let stopMicMeterFn = null;
+    let micChainSequence = 0;
 
-    // Set initial display name from authenticated user
-    nameInput.value = displayName;
-    localNameEl.textContent = displayName;
+    /**
+     * Puts the gate in front of the microphone and publishes the result as the
+     * stream every producer sends. If the worklet cannot be built the raw mic
+     * goes out ungated — an unfiltered volunteer beats a silent one — and the
+     * chip says so rather than leaving a dead fader on screen.
+     */
+    async function startMicChain(stream) {
+      stopMicChain();
+      const sequence = ++micChainSequence;
 
-    updateParticipantsVisibility();
-    updateDeviceSelectorsVisibility();
-    setHouseFeedStatus('off', 'Offline');
-    updateHouseFeedControls();
-    setAdminToServerStatus('off', 'Offline');
-    updateAdminToServerControls();
-
-    leaveBtn.onclick = () => {
-      cleanup(true);
-    };
-
-    logoutBtn.onclick = async () => {
-      if (socket) {
-        cleanup(true);
-      }
-
+      let gate = null;
       try {
-        await fetch('/api/logout', {
-          method: 'POST',
-          credentials: 'include',
+        gate = await createMicGate(stream, (db, open) => {
+          setMeterLevel(dbToPercent(db));
+          if (open !== gateOpen) {
+            gateOpen = open;
+            updateGateUi();
+          }
         });
       } catch (error) {
-        console.error('Logout error:', error);
+        debug('gate unavailable', error);
       }
 
-      window.location.href = '/auth.html';
-    };
+      // A device switch (or a leave) while the worklet was loading wins.
+      if (sequence !== micChainSequence) {
+        gate?.stop();
+        return;
+      }
 
-    muteBtn.addEventListener('click', () => {
-      if (!localStream) return;
-      setMicMuted(!micMuted);
+      if (gate) {
+        micGate = gate;
+        outboundStream = gate.stream;
+        gateSupported = true;
+      } else {
+        micGate = null;
+        gateSupported = false;
+        outboundStream = stream;
+        stopMicMeterFn = createMeter(stream, setMeterLevel);
+      }
+
+      updateGateUi();
+    }
+
+    function stopMicChain() {
+      // Also invalidates a chain still waiting on the worklet to load.
+      micChainSequence += 1;
+      micGate?.stop();
+      micGate = null;
+      stopMicMeterFn?.();
+      stopMicMeterFn = null;
+      outboundStream = null;
+      gateOpen = false;
+      setMeterLevel(0);
+      updateGateUi();
+    }
+
+    // ---- fader interaction -------------------------------------------------
+
+    function thresholdFromPointer(event) {
+      const rect = gateMeter.getBoundingClientRect();
+      if (!rect.width) return gateSettings.thresholdDb;
+      return percentToDb(((event.clientX - rect.left) / rect.width) * 100);
+    }
+
+    let draggingGate = false;
+
+    gateMeter.addEventListener('pointerdown', (event) => {
+      if (!gateSupported) return;
+      event.preventDefault();
+      draggingGate = true;
+      // Capture keeps the drag alive once the finger leaves the bar, which it
+      // will: the bar is 24px tall and thumbs are not precise.
+      try { gateMeter.setPointerCapture?.(event.pointerId); } catch { /* no capture */ }
+      setGateThreshold(thresholdFromPointer(event));
     });
+
+    // Tracked on the window, not the bar: if pointer capture was refused, the
+    // release would otherwise land somewhere else and leave the fader stuck to
+    // the pointer.
+    window.addEventListener('pointermove', (event) => {
+      if (draggingGate) setGateThreshold(thresholdFromPointer(event));
+    });
+
+    function endGateDrag(event) {
+      if (!draggingGate) return;
+      draggingGate = false;
+      try { gateMeter.releasePointerCapture?.(event.pointerId); } catch { /* never held */ }
+      saveGateSettings();
+    }
+
+    window.addEventListener('pointerup', endGateDrag);
+    window.addEventListener('pointercancel', endGateDrag);
+
+    gateMeter.addEventListener('keydown', (event) => {
+      if (!gateSupported) return;
+      const coarse = event.key === 'PageUp' || event.key === 'PageDown';
+      const step = coarse ? 5 : 1;
+      let direction = 0;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'PageUp') {
+        direction = 1;
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown' || event.key === 'PageDown') {
+        direction = -1;
+      } else {
+        return;
+      }
+      event.preventDefault();
+      setGateThreshold(gateSettings.thresholdDb + direction * step);
+      saveGateSettings();
+    });
+
+    gateEnabledInput.checked = gateSettings.enabled;
+    gateEnabledInput.addEventListener('change', () => {
+      gateSettings.enabled = gateEnabledInput.checked;
+      micGate?.setEnabled(gateSettings.enabled);
+      saveGateSettings();
+      updateGateUi();
+    });
+
+    updateGateUi();
+
+    function closeAudioContext() {
+      sharedAudioContext?.close().catch(() => {});
+      sharedAudioContext = null;
+      // The worklet registration belonged to that context.
+      gateWorkletLoad = null;
+    }
+
+    // ------------------------------------------------------------------- feeds
+
+    const feedsPanel = el('feedsPanel');
+    const feedList = el('feedList');
+
+    function renderFeeds(feeds) {
+      feedsPanel.classList.toggle('hidden', !socket || feeds.length === 0);
+      const seen = new Set();
+
+      for (const feed of feeds) {
+        seen.add(feed.id);
+        let row = feedRows.get(feed.id);
+
+        if (!row) {
+          const container = document.createElement('div');
+          container.className = 'feed-row';
+
+          const dot = document.createElement('span');
+          dot.className = 'speaking-dot';
+          dot.title = 'Signal present';
+
+          const name = document.createElement('span');
+          name.className = 'feed-name';
+
+          // Metered client-side from the decoded audio: the server cannot
+          // measure these, because ffmpeg does not send the RTP audio-level
+          // header extension that mediasoup's observer relies on.
+          const meter = document.createElement('div');
+          meter.className = 'meter';
+          const meterFill = document.createElement('div');
+          meterFill.className = 'meter-fill';
+          meter.appendChild(meterFill);
+
+          const chip = document.createElement('span');
+          chip.className = 'status-chip offline';
+          chip.textContent = 'Not listening';
+
+          const toggle = document.createElement('button');
+          toggle.className = 'secondary';
+          toggle.textContent = 'Listen';
+
+          const volume = document.createElement('input');
+          volume.type = 'range';
+          volume.min = '0';
+          volume.max = '1';
+          volume.step = '0.05';
+          volume.value = '1';
+          volume.setAttribute('aria-label', 'Feed volume');
+
+          const audio = document.createElement('audio');
+          audio.autoplay = true;
+          audio.playsInline = true;
+
+          container.append(dot, name, meter, chip, volume, toggle, audio);
+          feedList.appendChild(container);
+
+          row = { container, dot, name, chip, toggle, volume, audio, meterFill,
+                  stopMeter: null, listening: false, wantsAudio: false,
+                  producerId: null };
+          feedRows.set(feed.id, row);
+
+          volume.addEventListener('input', () => { audio.volume = Number(volume.value); });
+          toggle.addEventListener('click', () => {
+            row.wantsAudio = !row.listening;
+            (row.listening ? stopFeed(feed.id) : startFeed(feed.id).catch(console.error));
+          });
+        }
+
+        row.name.textContent = feed.name;
+        row.producerId = feed.producerId;
+        row.toggle.disabled = !feed.available;
+
+        if (!feed.available && row.listening) stopFeed(feed.id, { keepIntent: true });
+        if (!feed.available) {
+          row.chip.className = 'status-chip offline';
+          row.chip.textContent = 'Unavailable';
+        }
+      }
+
+      for (const [feedId, row] of feedRows) {
+        if (seen.has(feedId)) continue;
+        stopFeed(feedId);
+        row.container.remove();
+        feedRows.delete(feedId);
+      }
+    }
+
+    async function startFeed(feedId) {
+      const row = feedRows.get(feedId);
+      if (!row?.producerId || row.listening) return;
+
+      row.wantsAudio = true;
+      row.toggle.disabled = true;
+      row.chip.className = 'status-chip pending';
+      row.chip.textContent = 'Connecting…';
+
+      try {
+        const consumer = await consumeProducer(row.producerId);
+        if (!consumer) throw new Error('server declined');
+
+        row.audio.srcObject = new MediaStream([consumer.track]);
+        row.audio.volume = Number(row.volume.value);
+        registerAudioElement(row.audio);
+        await row.audio.play().catch(() => {});
+
+        row.stopMeter?.();
+        row.stopMeter = createMeter(row.audio.srcObject, (level) => {
+          row.meterFill.style.right = `${100 - level}%`;
+          row.dot.classList.toggle('on', level > 4);
+        });
+
+        row.listening = true;
+        row.toggle.textContent = 'Stop';
+        row.chip.className = 'status-chip live';
+        row.chip.textContent = 'Listening';
+      } catch (error) {
+        console.error('Feed error', error);
+        row.chip.className = 'status-chip error';
+        row.chip.textContent = 'Failed';
+      } finally {
+        row.toggle.disabled = false;
+      }
+    }
+
+    // keepIntent is used when a feed drops for reasons the user did not choose
+    // (reconnect, capture restart) so it can be resumed automatically.
+    function stopFeed(feedId, { keepIntent = false } = {}) {
+      const row = feedRows.get(feedId);
+      if (!row) return;
+
+      row.stopMeter?.();
+      row.stopMeter = null;
+      if (row.producerId) closeConsumer(row.producerId);
+      row.audio.srcObject = null;
+      unregisterAudioElement(row.audio);
+      row.listening = false;
+      if (!keepIntent) row.wantsAudio = false;
+      row.toggle.textContent = 'Listen';
+      row.chip.className = 'status-chip offline';
+      row.chip.textContent = 'Not listening';
+      row.dot.classList.remove('on');
+    }
+
+    // ---------------------------------------------------------------- playback
+
+    const playbackPanel = el('playbackPanel');
+    const playbackToggle = el('playbackToggle');
+    const playbackStatus = el('playbackStatus');
+
+    function setPlaybackStatus(state, text) {
+      playbackStatus.className = `status-chip ${state}`;
+      playbackStatus.textContent = text;
+    }
+
+    function updatePlaybackControls() {
+      playbackPanel.classList.toggle('hidden', !socket || !isAdmin);
+      playbackToggle.textContent = playbackEnabled ? 'Stop output' : 'Start output';
+      playbackToggle.disabled = playbackPending || !localStream;
+    }
+
+    playbackToggle.addEventListener('click', () => {
+      if (!socket || !isAdmin || playbackPending) return;
+
+      playbackPending = true;
+      setPlaybackStatus('pending', playbackEnabled ? 'Stopping…' : 'Starting…');
+      updatePlaybackControls();
+
+      socket.emit('setPlayback', { enabled: !playbackEnabled }, (res = {}) => {
+        playbackPending = false;
+        if (res.error) {
+          setPlaybackStatus('error', res.error);
+        } else {
+          playbackEnabled = !!res.enabled;
+          setPlaybackStatus(playbackEnabled ? 'on' : 'off',
+                            playbackEnabled ? 'Streaming' : 'Offline');
+        }
+        updatePlaybackControls();
+      });
+    });
+
+    // --------------------------------------------------------------- local mic
+
+    const muteBtn = el('mute');
+    const pushToTalkBtn = el('pushToTalk');
+    const micStatusEl = el('micStatus');
+    const heardChip = el('heardChip');
+
+    const talking = () => !micMuted || pushToTalkActive || pushToTalkLatched;
+
+    // Mute acts on the gated stream, not the raw mic, so the meter keeps moving
+    // while muted — that is when people want to set their gate.
+    function applyLocalTrackState() {
+      const stream = outboundStream || localStream;
+      if (!stream) return;
+      for (const track of stream.getAudioTracks()) track.enabled = talking();
+    }
+
+    function updateMicStatus() {
+      micStatusEl.className = 'status-chip';
+      if (!localStream) {
+        micStatusEl.classList.add('offline');
+        micStatusEl.textContent = 'Disconnected';
+      } else if (pushToTalkLatched) {
+        micStatusEl.classList.add('ptt');
+        micStatusEl.textContent = 'Latched on';
+      } else if (micMuted && pushToTalkActive) {
+        micStatusEl.classList.add('ptt');
+        micStatusEl.textContent = 'Push-to-talk (live)';
+      } else if (micMuted) {
+        micStatusEl.classList.add('muted');
+        micStatusEl.textContent = 'Muted';
+      } else {
+        micStatusEl.classList.add('live');
+        micStatusEl.textContent = 'Live';
+      }
+      pushToTalkBtn.classList.toggle('latched', pushToTalkLatched);
+    }
+
+    function setMicMuted(muted) {
+      micMuted = !!muted;
+      if (micMuted) pushToTalkLatched = false;
+      applyLocalTrackState();
+      muteBtn.textContent = micMuted ? 'Unmute Mic' : 'Mute Mic';
+      updateMicStatus();
+    }
+
+    function enableMicControls(enabled) {
+      muteBtn.disabled = !enabled;
+      pushToTalkBtn.disabled = !enabled;
+      if (!enabled) {
+        headsetPressActive = false;
+        pushToTalkActive = false;
+        pushToTalkLatched = false;
+      }
+    }
 
     function startPushToTalk() {
       if (!localStream) return;
@@ -1291,54 +1678,67 @@
       updateMicStatus();
     }
 
-    pushToTalkBtn.addEventListener('mousedown', (ev) => {
+    muteBtn.addEventListener('click', () => { if (localStream) setMicMuted(!micMuted); });
+
+    // Hold to talk, or tap to latch. Holding a button while framing a shot is
+    // impractical one-handed, so a quick tap leaves the mic open until tapped
+    // again; anything longer behaves as classic momentary push-to-talk.
+    const TAP_MS = 250;
+    let pressStartedAt = 0;
+
+    pushToTalkBtn.addEventListener('pointerdown', (ev) => {
+      if (pushToTalkBtn.disabled) return;
       ev.preventDefault();
-      startPushToTalk();
-    });
-    pushToTalkBtn.addEventListener('mouseup', stopPushToTalk);
-    pushToTalkBtn.addEventListener('mouseleave', stopPushToTalk);
-    pushToTalkBtn.addEventListener('touchstart', (ev) => {
-      ev.preventDefault();
-      startPushToTalk();
-    }, { passive: false });
-    pushToTalkBtn.addEventListener('touchend', stopPushToTalk);
-    pushToTalkBtn.addEventListener('touchcancel', stopPushToTalk);
+      pushToTalkBtn.setPointerCapture?.(ev.pointerId);
+      pressStartedAt = Date.now();
 
-    const HEADSET_KEY_CODES = new Set(['HeadsetHook', 'MediaPlayPause']);
-
-    function isHeadsetButtonEvent(ev) {
-      if (!ev) return false;
-      if (HEADSET_KEY_CODES.has(ev.code) || HEADSET_KEY_CODES.has(ev.key)) return true;
-      if (typeof ev.keyCode === 'number' && ev.keyCode === 179) return true;
-      return false;
-    }
-
-    function headsetButtonAvailable() {
-      return !!pushToTalkBtn && !pushToTalkBtn.disabled;
-    }
-
-    function headsetKeyDown(ev) {
-      if (!headsetButtonAvailable()) return;
-      if (!isHeadsetButtonEvent(ev)) return;
-      if (ev.repeat) {
-        ev.preventDefault();
+      if (pushToTalkLatched) {
+        pushToTalkLatched = false;
+        applyLocalTrackState();
+        updateMicStatus();
         return;
       }
-      ev.preventDefault();
-      headsetPressActive = true;
       startPushToTalk();
-    }
+    });
 
-    function headsetKeyUp(ev) {
-      if (!headsetPressActive) return;
-      if (!isHeadsetButtonEvent(ev)) return;
-      headsetPressActive = false;
-      ev.preventDefault();
+    function endPress(ev) {
+      if (!pressStartedAt) return;
+      const wasTap = Date.now() - pressStartedAt < TAP_MS;
+      pressStartedAt = 0;
+      pushToTalkBtn.releasePointerCapture?.(ev?.pointerId);
+
+      if (wasTap && pushToTalkActive) {
+        // Promote the momentary press into a latch.
+        pushToTalkActive = false;
+        pushToTalkLatched = true;
+        applyLocalTrackState();
+        updateMicStatus();
+        return;
+      }
       stopPushToTalk();
     }
 
-    document.addEventListener('keydown', headsetKeyDown, { passive: false });
-    document.addEventListener('keyup', headsetKeyUp, { passive: false });
+    pushToTalkBtn.addEventListener('pointerup', endPress);
+    pushToTalkBtn.addEventListener('pointercancel', endPress);
+
+    const HEADSET_KEYS = new Set(['HeadsetHook', 'MediaPlayPause']);
+    const isHeadsetEvent = (ev) =>
+      !!ev && (HEADSET_KEYS.has(ev.code) || HEADSET_KEYS.has(ev.key) || ev.keyCode === 179);
+
+    document.addEventListener('keydown', (ev) => {
+      if (pushToTalkBtn.disabled || !isHeadsetEvent(ev)) return;
+      ev.preventDefault();
+      if (ev.repeat) return;
+      headsetPressActive = true;
+      startPushToTalk();
+    }, { passive: false });
+
+    document.addEventListener('keyup', (ev) => {
+      if (!headsetPressActive || !isHeadsetEvent(ev)) return;
+      ev.preventDefault();
+      headsetPressActive = false;
+      stopPushToTalk();
+    }, { passive: false });
 
     window.addEventListener('blur', () => {
       if (!headsetPressActive) return;
@@ -1346,673 +1746,189 @@
       stopPushToTalk();
     });
 
-    function handlePageExit() {
-      if (!socket) return;
-      cleanup(true);
-    }
+    // ------------------------------------------------------------ device lists
 
-    window.addEventListener('pagehide', handlePageExit);
-    window.addEventListener('beforeunload', handlePageExit);
+    const deviceSelectors = el('deviceSelectors');
+    const inputDeviceSelect = el('inputDeviceSelect');
+    const outputDeviceSelect = el('outputDeviceSelect');
 
-    houseFeedToggle?.addEventListener('click', () => {
-      if (!socket) {
-        return;
-      }
-      if (houseFeedPending) {
-        return;
-      }
-      houseFeedPending = true;
-      setHouseFeedStatus('pending', houseFeedEnabled ? 'Stopping…' : 'Starting…');
-      updateHouseFeedControls();
-      socket.emit('setServerFeed', { enabled: !houseFeedEnabled }, (res = {}) => {
-        if (res.error) {
-          alert('House feed error: ' + res.error);
-          houseFeedPending = false;
-          setHouseFeedStatus(houseFeedEnabled ? 'on' : 'off', houseFeedEnabled ? 'Streaming' : 'Offline');
-          updateHouseFeedControls();
-          return;
-        }
-        if (typeof res.enabled === 'boolean') {
-          houseFeedEnabled = res.enabled;
-        }
-        houseFeedPending = false;
-        updateHouseFeedControls();
-      });
-    });
+    const shouldShowDeviceSelectors = () => isDesktopClient && isAdmin && !!socket;
 
-    adminToServerToggle?.addEventListener('click', async () => {
-      if (!socket || !isAdmin) {
-        return;
-      }
-      if (adminToServerPending) {
-        return;
-      }
-      if (!localStream) {
-        alert('Please join a room first to enable your microphone');
-        return;
-      }
-
-      adminToServerPending = true;
-      setAdminToServerStatus('pending', adminToServerEnabled ? 'Stopping…' : 'Starting…');
-      updateAdminToServerControls();
-
-      try {
-        if (adminToServerEnabled) {
-          // Stop streaming
-          socket.emit('setAdminToServer', { enabled: false }, (res = {}) => {
-            if (res.error) {
-              alert('Admin-to-server error: ' + res.error);
-              adminToServerPending = false;
-              setAdminToServerStatus('on', 'Streaming');
-              updateAdminToServerControls();
-              return;
-            }
-            adminToServerEnabled = false;
-            adminToServerProducerId = null;
-            adminToServerPending = false;
-            setAdminToServerStatus('off', 'Offline');
-            updateAdminToServerControls();
-          });
-        } else {
-          // Start streaming - need to get the producer ID
-          if (!adminToServerProducerId) {
-            // Need to find our producer ID from the active producers
-            const myProducerId = Array.from(activeProducers)[0];
-            if (!myProducerId) {
-              alert('No active audio producer found. Please ensure your microphone is working.');
-              adminToServerPending = false;
-              setAdminToServerStatus('off', 'Offline');
-              updateAdminToServerControls();
-              return;
-            }
-            adminToServerProducerId = myProducerId;
-          }
-
-          // Get RTP capabilities
-          const rtpCapabilities = device.rtpCapabilities;
-
-          socket.emit('setAdminToServer', {
-            enabled: true,
-            producerId: adminToServerProducerId,
-            rtpCapabilities
-          }, (res = {}) => {
-            if (res.error) {
-              alert('Admin-to-server error: ' + res.error);
-              adminToServerPending = false;
-              setAdminToServerStatus('off', 'Offline');
-              updateAdminToServerControls();
-              return;
-            }
-            adminToServerEnabled = true;
-            adminToServerPending = false;
-            setAdminToServerStatus('on', 'Streaming');
-            updateAdminToServerControls();
-          });
-        }
-      } catch (err) {
-        console.error('Admin-to-server toggle error:', err);
-        alert('Failed to toggle admin-to-server: ' + err.message);
-        adminToServerPending = false;
-        setAdminToServerStatus('off', 'Offline');
-        updateAdminToServerControls();
-      }
-    });
-
-    function applyLocalTrackState() {
-      if (!localStream) return;
-      const tracks = localStream.getAudioTracks();
-      for (const track of tracks) {
-        track.enabled = !micMuted || pushToTalkActive;
-        console.log('applyLocalTrackState:', {
-          trackId: track.id,
-          trackEnabled: track.enabled,
-          micMuted,
-          pushToTalkActive,
-          trackReadyState: track.readyState,
-          trackMuted: track.muted
-        });
-      }
-    }
-
-    if (inputDeviceSelect) {
-      inputDeviceSelect.addEventListener('change', async () => {
-        const newId = inputDeviceSelect.value || '';
-        const previousId = preferredInputDeviceId;
-        preferredInputDeviceId = newId;
-        if (!shouldShowDeviceSelectors()) {
-          return;
-        }
-        try {
-          await switchInputDevice(newId);
-        } catch (err) {
-          console.warn('Failed to switch input device', err);
-          preferredInputDeviceId = previousId;
-          await refreshDeviceOptions();
-          alert('Unable to switch microphone. Check device permissions and try again.');
-        }
-      });
-    }
-
-    if (outputDeviceSelect) {
-      outputDeviceSelect.addEventListener('change', () => {
-        preferredOutputDeviceId = outputDeviceSelect.value || '';
-        if (canSelectOutputDevice) {
-          applyOutputDeviceToAll();
-        }
-      });
-    }
-
-    if (navigator.mediaDevices) {
-      const handleDeviceChange = () => {
-        refreshDeviceOptions();
-      };
-      if (typeof navigator.mediaDevices.addEventListener === 'function') {
-        navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
-      } else {
-        navigator.mediaDevices.ondevicechange = handleDeviceChange;
-      }
-    }
-
-    function setMicMuted(muted) {
-      micMuted = !!muted;
-      applyLocalTrackState();
-      muteBtn.textContent = micMuted ? 'Unmute Mic' : 'Mute Mic';
-      updateMicStatus();
-    }
-
-    function updateMicStatus() {
-      if (!micStatusEl) return;
-      micStatusEl.classList.remove('live', 'muted', 'offline', 'ptt');
-      if (!localStream) {
-        micStatusEl.textContent = 'Disconnected';
-        micStatusEl.classList.add('offline');
-        return;
-      }
-      if (micMuted && pushToTalkActive) {
-        micStatusEl.textContent = 'Push-to-talk (live)';
-        micStatusEl.classList.add('ptt');
-      } else if (micMuted) {
-        micStatusEl.textContent = 'Muted';
-        micStatusEl.classList.add('muted');
-      } else {
-        micStatusEl.textContent = 'Live';
-        micStatusEl.classList.add('live');
-      }
-    }
-
-    function enableMicControls(enabled) {
-      muteBtn.disabled = !enabled;
-      pushToTalkBtn.disabled = !enabled;
-      if (!enabled && headsetPressActive) {
-        headsetPressActive = false;
-        stopPushToTalk();
-      }
-    }
-
-    async function joinRoom(room) {
-      if (socket) {
-        alert('Already connected. Leave first.');
-        return;
-      }
-      if (joiningRoom) {
-        alert('Connection in progress. Please wait.');
-        return;
-      }
-
-      // Display name already set from authenticated user
-      joiningRoom = true;
-      setRoomButtonsDisabled(true);
-      log('Connecting to room ' + roomLabel(room));
-
-      currentRoomId = room;
-      houseFeedEnabled = false;
-      houseFeedPending = false;
-      houseFeedPeerId = '';
-      houseFeedName = 'House Feed';
-      setHouseFeedStatus('pending', 'Connecting…');
-      updateHouseFeedControls();
-
-      try {
-        const DeviceClass = await loadDeviceModule();
-        Device = DeviceClass;
-      } catch (err) {
-        console.error('Failed to load mediasoup-client:', err);
-        alert('Failed to load mediasoup client. Check console for details.');
-        joiningRoom = false;
-        setRoomButtonsDisabled(false);
-        currentRoomId = null;
-        houseFeedEnabled = false;
-        houseFeedPending = false;
-        houseFeedPeerId = '';
-        houseFeedName = 'House Feed';
-        setHouseFeedStatus('off', 'Offline');
-        updateHouseFeedControls();
-        return;
-      }
-
-      // isAdmin already set from currentUser
-      nameInput.disabled = true;
-      updateParticipantsVisibility();
-      updateDeviceSelectorsVisibility();
-
-      const query = { room };
-      socket = io({ query, withCredentials: true });
-      updateDeviceSelectorsVisibility();
-      updateHouseFeedControls();
-
-      disconnectHandler = () => {
-        cleanup(false);
-      };
-      socket.on('disconnect', disconnectHandler);
-
-      socket.on('connect_error', () => { log('connect_error'); });
-      socket.on('error', (msg) => { alert('Server error: ' + msg); });
-      socket.on('kicked', ({ by, byName }) => {
-        const kicker = byName || peersInfo.get(by)?.name || 'an admin';
-        alert(`You were removed by ${kicker}.`);
-        cleanup(true);
-      });
-
-      socket.on('peers', (list) => {
-        console.log('Received peers list:', { count: list?.length, peers: list, mySocketId: socket.id });
-        for (const peer of list || []) {
-          if (!peer?.id) continue;
-          const isServer = !!peer.serverFeed || isServerFeedId(peer.id);
-          console.log('Processing peer:', { peerId: peer.id, isServer, admin: peer.admin, name: peer.name });
-          if (!isServer) {
-            // Only add real peers, not server feeds
-            peersInfo.set(peer.id, { admin: !!peer.admin, name: peer.name || '', serverFeed: false });
-            ensurePeerCard(peer.id);
-          }
-        }
-        console.log('After processing peers - peersInfo size:', peersInfo.size, 'peerCards size:', peerCards.size);
-        refreshPeerCards();
-        updateHouseFeedControls();
-      });
-
-      socket.on('peer-joined', ({ id, admin, name, serverFeed }) => {
-        if (!id) return;
-        const isServer = !!serverFeed || isServerFeedId(id);
-        if (!isServer) {
-          // Only add real peers, not server feeds
-          peersInfo.set(id, { admin: !!admin, name: name || '', serverFeed: false });
-          ensurePeerCard(id);
-          const label = name ? `${name} (${id})` : id;
-          log('peer-joined: ' + label);
-          refreshPeerCards();
-        }
-      });
-
-      socket.on('peer-left', ({ id, name }) => {
-        const isServer = id && isServerFeedId(id);
-        if (!isServer) {
-          peersInfo.delete(id);
-          removePeerCard(id);
-          const label = name ? `${name} (${id})` : id;
-          log('peer-left: ' + label);
-          refreshPeerCards();
-        }
-      });
-
-      socket.on('server-feed-state', ({ enabled, id, name }) => {
-        if (typeof id === 'string' && id) {
-          houseFeedPeerId = id;
-        }
-        if (typeof name === 'string' && name.trim()) {
-          houseFeedName = name.trim();
-        }
-        houseFeedEnabled = !!enabled;
-        if (houseFeedEnabled) {
-          setHouseFeedStatus('on', 'Streaming');
-        } else {
-          setHouseFeedStatus('off', 'Offline');
-        }
-        houseFeedPending = false;
-        updateHouseFeedControls();
-      });
-
-      socket.on('admin-to-server-state', ({ enabled, reason }) => {
-        adminToServerEnabled = !!enabled;
-        if (adminToServerEnabled) {
-          setAdminToServerStatus('on', 'Streaming');
-        } else {
-          if (reason && reason.startsWith('process-exit')) {
-            setAdminToServerStatus('error', 'Process stopped');
-            console.error('Admin-to-server process exited:', reason);
-          } else if (reason && reason.startsWith('process-error')) {
-            setAdminToServerStatus('error', 'Process error');
-            console.error('Admin-to-server process error:', reason);
-          } else {
-            setAdminToServerStatus('off', 'Offline');
-          }
-        }
-        adminToServerPending = false;
-        updateAdminToServerControls();
-      });
-
-      socket.on('new-producer', ({ producerId, socketId }) => {
-        console.log('new-producer event', { producerId, socketId, mySocketId: socket.id });
-        consumeProducer(producerId, room, socketId).catch(console.error);
-      });
-
-      socket.on('producer-closed', ({ producerId }) => {
-        removeRemote(producerId);
-      });
-
-      socket.emit('joinRoom', { roomId: room }, () => {});
-
-      const routerRtpCapabilities = await new Promise((resolve) => {
-        socket.emit('getRtpCapabilities', (cap) => resolve(cap));
-      });
-
-      device = new Device();
-      await device.load({ routerRtpCapabilities });
-
-      try {
-        const audioConstraints = {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        };
-        if (preferredInputDeviceId) {
-          audioConstraints.deviceId = { exact: preferredInputDeviceId };
-        }
-        const mediaConstraints = { audio: audioConstraints };
-        localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-        const firstTrack = localStream.getAudioTracks()[0];
-        if (firstTrack && typeof firstTrack.getSettings === 'function') {
-          const settings = firstTrack.getSettings();
-          if (settings?.deviceId) {
-            preferredInputDeviceId = settings.deviceId;
-          }
-        }
-        setMicMuted(false);
-        enableMicControls(true);
-      } catch (err) {
-        alert('Microphone required');
-        cleanup(true);
-        return;
-      }
-      updateDeviceSelectorsVisibility();
-      updateAdminToServerControls();
+    function updateDeviceSelectorsVisibility() {
+      const show = shouldShowDeviceSelectors();
+      deviceSelectors.classList.toggle('active', show);
+      if (!show) return;
+      el('outputSelectorGroup').classList.toggle('hidden', !canSelectOutputDevice);
+      el('outputSupportNote').classList.toggle('hidden', canSelectOutputDevice);
       refreshDeviceOptions();
+    }
 
-      const sendParams = await new Promise((resolve) => {
-        socket.emit('createTransport', { roomId: room }, (p) => resolve(p));
-      });
-      if (sendParams?.error) {
-        alert('Transport error: ' + sendParams.error);
-        cleanup(true);
-        return;
-      }
-      sendTransport = device.createSendTransport(sendParams);
+    function fillSelect(select, devices, fallbackLabel, preferredId) {
+      select.innerHTML = '';
+      const defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = 'System default';
+      select.appendChild(defaultOption);
 
-      // Log transport connection state changes
-      sendTransport.on('connectionstatechange', (state) => {
-        console.log('sendTransport connectionstatechange:', state);
-      });
-
-      sendTransport.on('connect', ({ dtlsParameters }, cb, errCb) => {
-        console.log('sendTransport connect event', { transportId: sendTransport.id });
-        socket.emit('connectTransport', { roomId: room, transportId: sendTransport.id, dtlsParameters }, (res) => {
-          if (res && res.error) {
-            console.error('sendTransport connect error:', res.error);
-            return errCb(res.error);
-          }
-          console.log('sendTransport connected successfully');
-          cb();
-        });
-      });
-      sendTransport.on('produce', ({ kind, rtpParameters }, cb, errCb) => {
-        socket.emit('produce', { roomId: room, transportId: sendTransport.id, kind, rtpParameters }, (res) => {
-          if (res && res.error) return errCb(res.error);
-          producedIds.push(res.id);
-          cb({ id: res.id });
-        });
+      devices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || `${fallbackLabel} ${index + 1}`;
+        select.appendChild(option);
       });
 
-      // Check if local microphone is actually capturing audio
-      const localAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const localSource = localAudioContext.createMediaStreamSource(localStream);
-      const localAnalyser = localAudioContext.createAnalyser();
-      localAnalyser.fftSize = 256;
-      localSource.connect(localAnalyser);
-      const localDataArray = new Uint8Array(localAnalyser.frequencyBinCount);
+      const hasPreferred = preferredId &&
+        [...select.options].some((option) => option.value === preferredId);
+      select.value = hasPreferred ? preferredId : '';
+      return hasPreferred ? preferredId : '';
+    }
 
-      setInterval(() => {
-        localAnalyser.getByteFrequencyData(localDataArray);
-        const average = localDataArray.reduce((a, b) => a + b) / localDataArray.length;
-        console.log('Local mic audio level:', { average, hasAudio: average > 0 });
-      }, 2000);
+    async function refreshDeviceOptions() {
+      if (!shouldShowDeviceSelectors() || !navigator.mediaDevices?.enumerateDevices) return;
+      if (deviceRefreshPromise) return deviceRefreshPromise;
 
-      for (const track of localStream.getAudioTracks()) {
+      deviceRefreshPromise = (async () => {
+        let devices;
         try {
-          const codecOptions = {
-            opusStereo: true,
-            opusDtx: true,
-          };
-          const producer = await sendTransport.produce({ track, codecOptions });
-
-          console.log('Producer created:', {
-            id: producer.id,
-            kind: producer.kind,
-            paused: producer.paused,
-            track: producer.track?.id,
-            trackEnabled: producer.track?.enabled
-          });
-
-          // Explicitly resume producer to ensure it's sending
-          if (producer.paused) {
-            await producer.resume();
-            console.log('Producer resumed after creation');
-          }
-
-          activeProducers.add(producer);
-          // Store producer ID for admin-to-server streaming
-          if (!adminToServerProducerId) {
-            adminToServerProducerId = producer.id;
-          }
-          const removeProducer = () => {
-            activeProducers.delete(producer);
-            // Clear admin-to-server producer ID if this was the one being used
-            if (adminToServerProducerId === producer.id) {
-              adminToServerProducerId = null;
-            }
-          };
-          producer.on('transportclose', removeProducer);
-          producer.on('trackended', removeProducer);
-          producer.on('close', removeProducer);
-        } catch (e) {
-          console.warn('produce error', e);
+          devices = await navigator.mediaDevices.enumerateDevices();
+        } catch (error) {
+          console.warn('Could not enumerate devices', error);
+          return;
         }
+
+        const currentTrack = localStream?.getAudioTracks?.()[0];
+        const trackDeviceId = currentTrack?.getSettings?.().deviceId || '';
+
+        preferredInputDeviceId = fillSelect(
+          inputDeviceSelect,
+          devices.filter((d) => d.kind === 'audioinput'),
+          'Microphone',
+          preferredInputDeviceId || trackDeviceId
+        );
+
+        if (canSelectOutputDevice) {
+          preferredOutputDeviceId = fillSelect(
+            outputDeviceSelect,
+            devices.filter((d) => d.kind === 'audiooutput'),
+            'Speaker',
+            preferredOutputDeviceId
+          );
+          for (const element of audioElements) applyOutputDeviceToElement(element);
+        }
+      })().finally(() => { deviceRefreshPromise = null; });
+
+      return deviceRefreshPromise;
+    }
+
+    inputDeviceSelect.addEventListener('change', async () => {
+      const previousId = preferredInputDeviceId;
+      try {
+        await switchInputDevice(inputDeviceSelect.value || '');
+      } catch (error) {
+        console.warn('Could not switch microphone', error);
+        preferredInputDeviceId = previousId;
+        await refreshDeviceOptions();
+        fatal('Could not switch microphone. Check device permissions.');
       }
+    });
+
+    outputDeviceSelect.addEventListener('change', () => {
+      preferredOutputDeviceId = outputDeviceSelect.value || '';
+      for (const element of audioElements) applyOutputDeviceToElement(element);
+    });
+
+    navigator.mediaDevices?.addEventListener?.('devicechange', () => refreshDeviceOptions());
+
+    function micConstraints(deviceId) {
+      const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      if (deviceId) audio.deviceId = { exact: deviceId };
+      return { audio };
+    }
+
+    /** Rejects with `message` if `promise` has not settled in time. */
+    function withTimeout(promise, timeoutMs, message) {
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      });
+      return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+    }
+
+    /**
+     * Acquires the microphone, translating the browser's error names into
+     * something a volunteer can act on.
+     *
+     * getUserMedia does not reject when a permission prompt is simply left
+     * unanswered — and someone setting up a camera will absolutely tap away
+     * from the prompt — so this is also covered by the join watchdog.
+     */
+    async function requestMicrophone() {
+      try {
+        return await withTimeout(
+          navigator.mediaDevices.getUserMedia(micConstraints(preferredInputDeviceId)),
+          20000,
+          'Timed out waiting for microphone permission. Reload the page and ' +
+          'choose Allow when your browser asks.'
+        );
+      } catch (error) {
+        if (error.name === 'NotAllowedError') {
+          throw new Error(
+            'Microphone access was blocked. Allow it in your browser settings, ' +
+            'then rejoin. On a phone this also requires HTTPS.'
+          );
+        }
+        if (error.name === 'NotFoundError') {
+          throw new Error('No microphone was found on this device.');
+        }
+        if (error.name === 'NotReadableError') {
+          throw new Error(
+            'The microphone is in use by another app. Close it and rejoin.'
+          );
+        }
+        throw error;
+      }
+    }
+
+    async function switchInputDevice(deviceId) {
+      const newStream = await navigator.mediaDevices.getUserMedia(micConstraints(deviceId));
+      const [newTrack] = newStream.getAudioTracks();
+      if (!newTrack) {
+        newStream.getTracks().forEach((track) => track.stop());
+        throw new Error('That device has no audio track');
+      }
+
+      const oldStream = localStream;
+      localStream = newStream;
+      preferredInputDeviceId = newTrack.getSettings?.().deviceId || deviceId || '';
+      // The gate is rebuilt around the new device, which yields a new outbound
+      // track — that, not the raw one, is what the producers must carry.
+      await startMicChain(newStream);
       applyLocalTrackState();
-      updateAdminToServerControls();
-
-      const recvParams = await new Promise((resolve) => {
-        socket.emit('createTransport', { roomId: room }, (p) => resolve(p));
-      });
-      if (recvParams?.error) {
-        alert('Transport error: ' + recvParams.error);
-        cleanup(true);
-        return;
-      }
-      recvTransport = device.createRecvTransport(recvParams);
-
-      // Log transport connection state changes
-      recvTransport.on('connectionstatechange', (state) => {
-        console.log('recvTransport connectionstatechange:', state);
-      });
-
-      recvTransport.on('connect', ({ dtlsParameters }, cb, errCb) => {
-        console.log('recvTransport connect event', { transportId: recvTransport.id });
-        socket.emit('connectTransport', { roomId: room, transportId: recvTransport.id, dtlsParameters }, (res) => {
-          if (res && res.error) {
-            console.error('recvTransport connect error:', res.error);
-            return errCb(res.error);
-          }
-          console.log('recvTransport connected successfully');
-          cb();
-        });
-      });
-
-      const existing = await new Promise((resolve) => {
-        socket.emit('getProducers', { roomId: room }, (list) => resolve(list || []));
-      });
-      console.log('getProducers response', { count: existing.length, producers: existing });
-      for (const p of existing) {
-        consumeProducer(p.producerId, room, p.socketId).catch(console.error);
-      }
-
-      leaveBtn.disabled = false;
-      localNameEl.textContent = displayName ? `${displayName} · connected` : 'Connected';
-      joiningRoom = false;
-      log('Joined ' + roomLabel(room));
-      refreshPeerCards();
       updateMicStatus();
+
+      const [outboundTrack] = (outboundStream || newStream).getAudioTracks();
+      const producers = [...activeProducers];
+      for (let i = 0; i < producers.length; i += 1) {
+        const track = i === 0 ? outboundTrack : outboundTrack.clone();
+        await producers[i].replaceTrack({ track })
+          .catch((error) => console.warn('Could not replace track', error));
+      }
+
+      oldStream?.getTracks().forEach((track) => track.stop());
+      refreshDeviceOptions();
     }
 
-    async function consumeProducer(producerId, room, ownerId) {
-      if (!recvTransport || !device || !socket) {
-        console.warn('consumeProducer: missing dependencies', { recvTransport: !!recvTransport, device: !!device, socket: !!socket });
-        return;
-      }
-      if (consuming[producerId]) {
-        console.log('consumeProducer: already consuming', producerId);
-        return;
-      }
+    // ------------------------------------------------------------ peer cards
 
-      console.log('consumeProducer: starting', { producerId, ownerId });
+    const remoteList = el('remoteList');
+    const participantsPanel = document.querySelector('.participants-panel');
 
-      const data = await new Promise((resolve) => {
-        socket.emit('consume', { roomId: room, producerId, rtpCapabilities: device.rtpCapabilities, transportId: recvTransport.id }, (res) => resolve(res));
-      });
-      if (!data || data.error) {
-        console.warn('consume error', data?.error);
-        return;
-      }
-
-      console.log('consumeProducer: server response', data);
-
-      const consumer = await recvTransport.consume({
-        id: data.id,
-        producerId: data.producerId,
-        kind: data.kind,
-        rtpParameters: data.rtpParameters,
-      });
-
-      // Resume the consumer to start receiving audio
-      await new Promise((resolve) => {
-        socket.emit('resumeConsumer', { roomId: room, consumerId: consumer.id }, (res) => {
-          console.log('Consumer resumed:', res);
-          resolve(res);
-        });
-      });
-
-      consuming[producerId] = consumer;
-      if (ownerId) producerToPeer.set(producerId, ownerId);
-
-      const stream = new MediaStream();
-      stream.addTrack(consumer.track);
-
-      console.log('consumeProducer: created stream', { streamId: stream.id, trackId: consumer.track.id, trackEnabled: consumer.track.enabled });
-
-      // Check if audio is actually flowing
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-      const checkAudio = async () => {
-        analyser.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-
-        // Also check WebRTC stats
-        const stats = await consumer.getStats();
-        let bytesReceived = 0;
-        let packetsReceived = 0;
-        stats.forEach(stat => {
-          if (stat.type === 'inbound-rtp') {
-            bytesReceived = stat.bytesReceived || 0;
-            packetsReceived = stat.packetsReceived || 0;
-          }
-        });
-
-        console.log('consumeProducer: audio level check', {
-          peerId: ownerId,
-          average,
-          hasAudio: average > 0,
-          bytesReceived,
-          packetsReceived,
-          consumerPaused: consumer.paused
-        });
-      };
-
-      setTimeout(checkAudio, 2000);
-      setTimeout(checkAudio, 5000);
-
-      let record = null;
-      if (ownerId) {
-        record = ensurePeerCard(ownerId);
-      }
-      if (!record && producerToPeer.has(producerId)) {
-        record = peerCards.get(producerToPeer.get(producerId));
-      }
-      if (record) {
-        console.log('consumeProducer: attaching to peer card', { peerId: record.peerId, audioMuted: record.audio.muted });
-        record.audio.srcObject = stream;
-        record.stream = stream;
-        if (record.muted && !record.pushHeld) {
-          record.audio.muted = true;
-        } else {
-          record.audio.muted = false;
-        }
-        record.audio.play().then(() => {
-          console.log('consumeProducer: audio playing', { peerId: record.peerId, volume: record.audio.volume, muted: record.audio.muted });
-        }).catch((err) => {
-          console.error('consumeProducer: audio play failed', err);
-        });
-        applyOutputDeviceToElement(record.audio);
-      } else {
-        console.warn('consumeProducer: no peer card found for', { producerId, ownerId });
-      }
-
-      consumer.on('producerclose', () => {
-        removeRemote(producerId);
-      });
-      consumer.on('transportclose', () => {
-        removeRemote(producerId);
-      });
-    }
-
-    function removeRemote(producerId) {
-      const consumer = consuming[producerId];
-      if (consumer) {
-        try { consumer.close(); } catch (e) {}
-        delete consuming[producerId];
-      }
-      const peerId = producerToPeer.get(producerId);
-      if (peerId) {
-        producerToPeer.delete(producerId);
-        const record = peerCards.get(peerId);
-        if (record) {
-          if (record.stream) {
-            try { record.stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
-            record.stream = null;
-          }
-          if (record.audio) {
-            record.audio.srcObject = null;
-          }
-        }
-      }
-    }
+    const peerDisplayName = (peerId, name) =>
+      (typeof name === 'string' && name.trim()) ? name.trim() : `Guest ${String(peerId).slice(-4)}`;
 
     function createPeerCard(peerId) {
       const card = document.createElement('div');
       card.className = 'peer-card';
-      card.dataset.peerId = peerId;
       card.setAttribute('role', 'listitem');
 
       const header = document.createElement('div');
@@ -2021,32 +1937,47 @@
       const nameBlock = document.createElement('div');
       nameBlock.className = 'name-block';
 
-      const name = document.createElement('span');
-      name.className = 'peer-name';
-      name.textContent = peerId;
+      const nameRow = document.createElement('div');
+      nameRow.style.display = 'flex';
+      nameRow.style.alignItems = 'center';
+      nameRow.style.gap = '8px';
 
-      const idMeta = document.createElement('span');
-      idMeta.className = 'peer-id';
-      idMeta.textContent = summarizeId(peerId);
+      const dot = document.createElement('span');
+      dot.className = 'speaking-dot';
+      dot.title = 'Speaking';
 
-      nameBlock.appendChild(name);
-      nameBlock.appendChild(idMeta);
+      const nameEl = document.createElement('span');
+      nameEl.className = 'peer-name';
+
+      nameRow.append(dot, nameEl);
+      nameBlock.appendChild(nameRow);
 
       const badge = document.createElement('span');
       badge.className = 'admin-badge';
 
-      header.appendChild(nameBlock);
-      header.appendChild(badge);
+      header.append(nameBlock, badge);
       card.appendChild(header);
 
       const audio = document.createElement('audio');
       audio.autoplay = true;
-      audio.controls = false;
       audio.playsInline = true;
-      audio.muted = false;
-      audio.volume = 1.0;
       card.appendChild(audio);
       registerAudioElement(audio);
+
+      const volumeRow = document.createElement('div');
+      volumeRow.className = 'peer-volume';
+      const volumeIcon = document.createElement('span');
+      volumeIcon.className = 'subtle';
+      volumeIcon.textContent = 'Vol';
+      const volume = document.createElement('input');
+      volume.type = 'range';
+      volume.min = '0';
+      volume.max = '1';
+      volume.step = '0.05';
+      volume.value = '1';
+      volume.setAttribute('aria-label', `Volume for ${peerId}`);
+      volumeRow.append(volumeIcon, volume);
+      card.appendChild(volumeRow);
 
       const actions = document.createElement('div');
       actions.className = 'actions';
@@ -2054,270 +1985,465 @@
       const muteButton = document.createElement('button');
       muteButton.textContent = 'Mute';
       actions.appendChild(muteButton);
-
-      const pushButton = document.createElement('button');
-      pushButton.textContent = 'Push to Talk';
-      actions.appendChild(pushButton);
-
       card.appendChild(actions);
 
-      const record = {
-        peerId,
-        card,
-        nameEl: name,
-        idEl: idMeta,
-        adminBadge: badge,
-        audio,
-        actions,
-        muteButton,
-        pushButton,
-        kickBtn: null,
-        muted: false,
-        pushHeld: false,
-        stream: null,
-        setMuted: null,
-      };
+      const record = { peerId, card, dot, nameEl, badge, audio, actions,
+                       muteButton, volume, kickBtn: null, muted: false };
 
-      function setMuted(state) {
-        record.muted = state;
-        if (!record.pushHeld) {
-          audio.muted = state;
-        }
-        muteButton.textContent = state ? 'Unmute' : 'Mute';
-      }
-
-      function pushStart(ev) {
-        if (ev) ev.preventDefault();
-        record.pushHeld = true;
-        audio.muted = false;
-      }
-
-      function pushEnd() {
-        record.pushHeld = false;
-        if (record.muted) {
-          audio.muted = true;
-        }
-      }
+      volume.addEventListener('input', () => { audio.volume = Number(volume.value); });
 
       muteButton.addEventListener('click', () => {
-        setMuted(!record.muted);
+        record.muted = !record.muted;
+        audio.muted = record.muted;
+        muteButton.textContent = record.muted ? 'Unmute' : 'Mute';
       });
-
-      pushButton.addEventListener('mousedown', pushStart);
-      pushButton.addEventListener('mouseup', pushEnd);
-      pushButton.addEventListener('mouseleave', pushEnd);
-      pushButton.addEventListener('touchstart', (ev) => {
-        pushStart(ev);
-      }, { passive: false });
-      pushButton.addEventListener('touchend', () => pushEnd());
-      pushButton.addEventListener('touchcancel', () => pushEnd());
-
-      record.setMuted = setMuted;
 
       return record;
     }
 
     function ensurePeerCard(peerId) {
       if (!peerId || peerId === socket?.id) return null;
+
       let record = peerCards.get(peerId);
       if (!record) {
         record = createPeerCard(peerId);
         peerCards.set(peerId, record);
         remoteList.appendChild(record.card);
       }
+
       const meta = peersInfo.get(peerId);
-      const display = peerDisplayName(peerId, meta?.name);
-      if (record.nameEl) {
-        record.nameEl.textContent = display;
-        record.nameEl.title = display;
+      record.nameEl.textContent = peerDisplayName(peerId, meta?.name);
+      record.badge.textContent = meta?.admin ? 'admin' : '';
+
+      if (isAdmin && !record.kickBtn) {
+        const kick = document.createElement('button');
+        kick.textContent = 'Kick';
+        kick.className = 'kick';
+        kick.addEventListener('click', () => socket?.emit('kick', { targetId: peerId }));
+        record.actions.appendChild(kick);
+        record.kickBtn = kick;
       }
-      if (record.idEl) {
-        record.idEl.textContent = summarizeId(peerId);
-      }
-      record.card.dataset.peerName = display;
-      record.card.setAttribute('aria-label', display);
-      record.adminBadge.textContent = meta?.admin ? 'admin' : '';
-      updateKickButton(record);
+
       return record;
-    }
-
-    function updateKickButton(record) {
-      if (!record) return;
-      const meta = peersInfo.get(record.peerId);
-      if (meta?.serverFeed || isServerFeedId(record.peerId)) {
-        if (record.kickBtn) {
-          record.kickBtn.remove();
-          record.kickBtn = null;
-        }
-        return;
-      }
-      if (!isAdmin) {
-        if (record.kickBtn) {
-          record.kickBtn.remove();
-          record.kickBtn = null;
-        }
-        return;
-      }
-      if (record.kickBtn) return;
-      const btn = document.createElement('button');
-      btn.textContent = 'Kick';
-      btn.classList.add('kick');
-      btn.addEventListener('click', () => {
-        if (!socket) return;
-        socket.emit('kick', { targetId: record.peerId });
-      });
-      record.actions.appendChild(btn);
-      record.kickBtn = btn;
-    }
-
-    function refreshPeerCards() {
-      for (const record of peerCards.values()) {
-        const meta = peersInfo.get(record.peerId);
-        const display = peerDisplayName(record.peerId, meta?.name);
-        if (record.nameEl) {
-          record.nameEl.textContent = display;
-          record.nameEl.title = display;
-        }
-        if (record.idEl) {
-          record.idEl.textContent = summarizeId(record.peerId);
-        }
-        record.card.dataset.peerName = display;
-        record.card.setAttribute('aria-label', display);
-        record.adminBadge.textContent = meta?.admin ? 'admin' : '';
-        if (record.muted && !record.pushHeld) {
-          record.audio.muted = true;
-        }
-        if (!record.muted) {
-          record.audio.muted = false;
-        }
-        if (isAdmin) {
-          updateKickButton(record);
-        } else if (record.kickBtn) {
-          record.kickBtn.remove();
-          record.kickBtn = null;
-        }
-      }
     }
 
     function removePeerCard(peerId) {
       const record = peerCards.get(peerId);
       if (!record) return;
-      if (record.stream) {
-        try { record.stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
-      }
-      if (record.audio) {
-        record.audio.srcObject = null;
-        unregisterAudioElement(record.audio);
-      }
-      if (record.card.parentElement) {
-        record.card.parentElement.removeChild(record.card);
-      }
+
+      record.audio.srcObject = null;
+      unregisterAudioElement(record.audio);
+      record.card.remove();
       peerCards.delete(peerId);
 
-      for (const [producerId, ownerId] of Array.from(producerToPeer.entries())) {
-        if (ownerId === peerId) {
-          producerToPeer.delete(producerId);
-          const consumer = consuming[producerId];
-          if (consumer) {
-            try { consumer.close(); } catch (e) {}
-            delete consuming[producerId];
-          }
-        }
+      for (const [producerId, ownerId] of [...producerToPeer]) {
+        if (ownerId === peerId) closeConsumer(producerId);
       }
     }
 
-    function cleanup(forceDisconnect = false) {
-      const currentSocket = socket;
-      if (currentSocket) {
-        if (disconnectHandler) {
-          currentSocket.off('disconnect', disconnectHandler);
-        }
-        if (forceDisconnect) {
-          try { currentSocket.disconnect(); } catch (e) {}
-        }
+    // --------------------------------------------------------------- consumers
+
+    async function consumeProducer(producerId, ownerId) {
+      if (!recvTransport || !device || !socket) return null;
+      if (consuming.has(producerId)) return consuming.get(producerId);
+
+      const generation = mediaGeneration;
+
+      const data = await new Promise((resolve) => {
+        socket.emit('consume', {
+          producerId,
+          rtpCapabilities: device.rtpCapabilities,
+          transportId: recvTransport.id,
+        }, resolve);
+      });
+
+      if (generation !== mediaGeneration) return null;
+      if (!data || data.error) {
+        debug('consume rejected', data?.error);
+        return null;
       }
-      socket = null;
-      disconnectHandler = null;
 
-      currentRoomId = null;
-      houseFeedEnabled = false;
-      houseFeedPending = false;
-      houseFeedPeerId = '';
-      houseFeedName = 'House Feed';
-      setHouseFeedStatus('off', 'Offline');
-      updateHouseFeedControls();
-      adminToServerEnabled = false;
-      adminToServerPending = false;
-      adminToServerProducerId = null;
-      setAdminToServerStatus('off', 'Offline');
-      updateAdminToServerControls();
+      const consumer = await recvTransport.consume({
+        id: data.id,
+        producerId: data.producerId,
+        kind: data.kind,
+        rtpParameters: data.rtpParameters,
+      });
 
-      for (const producer of Array.from(activeProducers)) {
-        try { producer.close(); } catch (e) {}
+      if (generation !== mediaGeneration) {
+        try { consumer.close(); } catch { /* already closed */ }
+        return null;
+      }
+
+      await new Promise((resolve) => {
+        socket.emit('resumeConsumer', { consumerId: consumer.id }, resolve);
+      });
+
+      consuming.set(producerId, consumer);
+      if (ownerId) producerToPeer.set(producerId, ownerId);
+
+      consumer.on('producerclose', () => closeConsumer(producerId));
+      consumer.on('transportclose', () => closeConsumer(producerId));
+
+      return consumer;
+    }
+
+    async function attachPeerAudio(producerId, ownerId) {
+      const consumer = await consumeProducer(producerId, ownerId);
+      if (!consumer) return;
+
+      const record = ensurePeerCard(ownerId);
+      if (!record) return;
+
+      record.audio.srcObject = new MediaStream([consumer.track]);
+      record.audio.muted = record.muted;
+      record.audio.volume = Number(record.volume.value);
+      record.audio.play().catch(() => {});
+      applyOutputDeviceToElement(record.audio);
+    }
+
+    function closeConsumer(producerId) {
+      const consumer = consuming.get(producerId);
+      if (consumer) {
+        try { consumer.close(); } catch { /* already closed */ }
+        consuming.delete(producerId);
+        socket?.emit('closeConsumer', { consumerId: consumer.id }, () => {});
+      }
+
+      const peerId = producerToPeer.get(producerId);
+      producerToPeer.delete(producerId);
+
+      const record = peerId && peerCards.get(peerId);
+      if (record) record.audio.srcObject = null;
+    }
+
+    // ------------------------------------------------------------------- join
+
+    const request = (event, payload) =>
+      new Promise((resolve) => socket.emit(event, payload, resolve));
+
+    /**
+     * Opens the room. Media setup deliberately lives in establishMedia() and is
+     * driven by the socket's 'connect' event, so the very first connection and
+     * every later reconnection follow exactly one code path.
+     */
+    function joinRoom(room) {
+      if (socket || currentRoom) return;
+
+      currentRoom = room;
+      leaving = false;
+      setRoomButtonsDisabled(true);
+      fatalBanner.classList.add('hidden');
+      log(`Connecting to ${roomLabel(room)}…`);
+
+      socket = io({
+        query: { room },
+        withCredentials: true,
+        reconnection: true,
+        reconnectionDelay: 500,
+        reconnectionDelayMax: 4000,
+        // Never stop trying. A service lasts over an hour and the Wi-Fi in a
+        // stone building is not reliable; giving up strands the user.
+        reconnectionAttempts: Infinity,
+      });
+
+      socket.on('connect', () => {
+        // Watchdog over the entire setup, not just any one step. Several links
+        // in this chain can stall rather than fail — an unanswered permission
+        // prompt, a WebRTC handler that never finishes probing, a transport
+        // that never negotiates. Any of them used to leave the user on a frozen
+        // "Setting up audio…" with the room picker and Leave button both
+        // disabled, and only a page reload as a way out.
+        withTimeout(establishMedia(), 30000,
+          'Setting up audio took too long. Check your microphone permission and try again.'
+        ).catch((error) => {
+          console.error('Media setup failed', error);
+          fatal(error.message);
+          leaveRoom({ keepBanner: true });
+        });
+      });
+
+      socket.on('disconnect', (reason) => {
+        if (leaving) return;
+        enterReconnecting(reason);
+      });
+
+      socket.on('connect_error', () => {
+        if (!leaving) log('Reconnecting…');
+      });
+
+      // A server-side rejection (unknown room, auth failure) is permanent;
+      // retrying it forever would spin silently.
+      socket.on('error', (message) => {
+        fatal(`Server: ${message}`);
+        leaveRoom({ keepBanner: true });
+      });
+
+      socket.on('kicked', ({ byName }) => {
+        fatal(`You were removed from the room by ${byName || 'an admin'}.`);
+        leaveRoom({ keepBanner: true });
+      });
+
+      socket.on('peers', (list) => {
+        for (const peer of list || []) {
+          peersInfo.set(peer.id, { name: peer.name, admin: peer.admin });
+          ensurePeerCard(peer.id);
+        }
+      });
+
+      socket.on('peer-joined', ({ id, name, admin }) => {
+        peersInfo.set(id, { name, admin });
+        ensurePeerCard(id);
+      });
+
+      socket.on('peer-left', ({ id }) => {
+        peersInfo.delete(id);
+        removePeerCard(id);
+      });
+
+      socket.on('feeds', renderFeeds);
+
+      socket.on('playback-state', (state) => {
+        playbackEnabled = state.active && state.ownerSocketId === socket.id;
+        setPlaybackStatus(playbackEnabled ? 'on' : 'off',
+                          playbackEnabled ? 'Streaming' : 'Offline');
+        updatePlaybackControls();
+      });
+
+      socket.on('new-producer', ({ producerId, socketId }) => {
+        attachPeerAudio(producerId, socketId).catch(console.error);
+      });
+
+      socket.on('producer-closed', ({ producerId }) => closeConsumer(producerId));
+
+      // Server-measured levels: this is what proves your microphone is actually
+      // reaching the room, rather than merely being open locally.
+      socket.on('speaking', (speakers) => {
+        const active = new Set((speakers || []).map((s) => s.id));
+
+        for (const [peerId, record] of peerCards) {
+          const on = active.has(peerId);
+          record.dot.classList.toggle('on', on);
+          record.card.classList.toggle('speaking', on);
+        }
+
+        const heard = active.has(socket.id);
+        heardChip.className = `status-chip ${heard ? 'live' : 'offline'}`;
+        heardChip.textContent = heard ? 'Heard by room' : 'Not heard';
+      });
+
+    }
+
+    /**
+     * Builds (or rebuilds) the whole media session on top of a live socket.
+     *
+     * Everything here is disposable and recreated after a drop. The microphone
+     * stream is the one exception — it is kept across reconnects so the browser
+     * does not re-prompt for permission every time the Wi-Fi hiccups.
+     */
+    async function establishMedia() {
+      const generation = ++mediaGeneration;
+      const stale = () => generation !== mediaGeneration || leaving;
+
+      log('Setting up audio…');
+
+      const routerRtpCapabilities = await request('getRtpCapabilities');
+      if (stale()) return;
+
+      device = new Device();
+      await device.load({ routerRtpCapabilities });
+      if (stale()) return;
+
+      if (!localStream) {
+        localStream = await requestMicrophone();
+        if (stale()) return;
+        await startMicChain(localStream);
+        if (stale()) return;
+        setMicMuted(false);
+      }
+
+      enableMicControls(true);
+
+      const sendParams = await request('createTransport');
+      if (stale()) return;
+      if (sendParams?.error) throw new Error(sendParams.error);
+
+      sendTransport = device.createSendTransport(sendParams);
+      sendTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+        request('connectTransport', { transportId: sendTransport.id, dtlsParameters })
+          .then((res) => (res?.error ? errback(new Error(res.error)) : callback()));
+      });
+      sendTransport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
+        request('produce', { transportId: sendTransport.id, kind, rtpParameters })
+          .then((res) => (res?.error ? errback(new Error(res.error)) : callback({ id: res.id })));
+      });
+
+      for (const track of (outboundStream || localStream).getAudioTracks()) {
+        const producer = await sendTransport.produce({
+          track,
+          codecOptions: { opusStereo: false, opusDtx: true },
+        });
+        if (stale()) { try { producer.close(); } catch { /* gone */ } return; }
+
+        activeProducers.add(producer);
+        const forget = () => activeProducers.delete(producer);
+        producer.on('transportclose', forget);
+        producer.on('trackended', forget);
+      }
+
+      applyLocalTrackState();
+
+      const recvParams = await request('createTransport');
+      if (stale()) return;
+      if (recvParams?.error) throw new Error(recvParams.error);
+
+      recvTransport = device.createRecvTransport(recvParams);
+      recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+        request('connectTransport', { transportId: recvTransport.id, dtlsParameters })
+          .then((res) => (res?.error ? errback(new Error(res.error)) : callback()));
+      });
+
+      for (const producer of await request('getProducers')) {
+        if (stale()) return;
+        attachPeerAudio(producer.producerId, producer.socketId).catch(console.error);
+      }
+
+      const feeds = await request('getFeeds');
+      if (stale()) return;
+      renderFeeds(feeds);
+
+      // Resume anything the user was listening to before the drop.
+      for (const [feedId, row] of feedRows) {
+        if (row.wantsAudio && !row.listening) startFeed(feedId).catch(console.error);
+      }
+
+      participantsPanel.classList.remove('hidden');
+      updateDeviceSelectorsVisibility();
+      updatePlaybackControls();
+      acquireWakeLock();
+
+      el('leave').disabled = false;
+      el('localName').textContent = `${displayName} · connected`;
+      updateMicStatus();
+      log(`Joined ${roomLabel(currentRoom)}`);
+    }
+
+    /**
+     * Drops the media session but keeps the room, the microphone, and the
+     * user's intent. Socket.IO keeps retrying underneath; when it succeeds,
+     * 'connect' fires and establishMedia() rebuilds everything.
+     */
+    function enterReconnecting(reason) {
+      debug('disconnected:', reason);
+      teardownMedia({ keepMic: true });
+
+      micStatusEl.className = 'status-chip reconnecting';
+      micStatusEl.textContent = 'Reconnecting…';
+      heardChip.className = 'status-chip offline';
+      heardChip.textContent = 'Not heard';
+      el('localName').textContent = `${displayName} · reconnecting`;
+      log('Connection lost — reconnecting…');
+    }
+
+    /** Tears down media objects. Does not touch the socket or room selection. */
+    function teardownMedia({ keepMic }) {
+      mediaGeneration += 1;
+
+      for (const [feedId] of feedRows) stopFeed(feedId, { keepIntent: true });
+
+      for (const consumer of consuming.values()) {
+        try { consumer.close(); } catch { /* already closed */ }
+      }
+      consuming.clear();
+      producerToPeer.clear();
+
+      for (const producer of activeProducers) {
+        try { producer.close(); } catch { /* already closed */ }
       }
       activeProducers.clear();
 
-      if (sendTransport) {
-        try { sendTransport.close(); } catch (e) {}
-      }
-      if (recvTransport) {
-        try { recvTransport.close(); } catch (e) {}
-      }
+      try { sendTransport?.close(); } catch { /* already closed */ }
+      try { recvTransport?.close(); } catch { /* already closed */ }
       sendTransport = null;
       recvTransport = null;
-
-      for (const consumer of Object.values(consuming)) {
-        try { consumer.close(); } catch (e) {}
-      }
-      for (const key of Object.keys(consuming)) {
-        delete consuming[key];
-      }
+      device = null;
 
       for (const record of peerCards.values()) {
-        if (record.stream) {
-          try { record.stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
-        }
-        if (record.audio) {
-          record.audio.srcObject = null;
-          unregisterAudioElement(record.audio);
-        }
+        record.audio.srcObject = null;
+        unregisterAudioElement(record.audio);
         record.card.remove();
       }
       peerCards.clear();
       peersInfo.clear();
-      producerToPeer.clear();
-      remoteList.innerHTML = '';
-      audioElements.clear();
 
-      if (localStream) {
-        for (const track of localStream.getTracks()) {
-          try { track.stop(); } catch (e) {}
-        }
+      playbackEnabled = false;
+      playbackPending = false;
+
+      if (!keepMic) {
+        stopMicChain();
+        localStream?.getTracks().forEach((track) => track.stop());
         localStream = null;
       }
+    }
 
-      producedIds = [];
+    /** Full exit: closes the socket and returns the UI to its idle state. */
+    function leaveRoom({ keepBanner = false } = {}) {
+      leaving = true;
+      if (!keepBanner) fatalBanner.classList.add('hidden');
+
+      if (socket) {
+        socket.removeAllListeners();
+        try { socket.disconnect(); } catch { /* already gone */ }
+      }
+      socket = null;
+      currentRoom = null;
+
+      teardownMedia({ keepMic: false });
+      closeAudioContext();
+      releaseWakeLock();
+
+      for (const [feedId, row] of feedRows) {
+        row.container.remove();
+        feedRows.delete(feedId);
+      }
+
+      audioElements.clear();
+      remoteList.innerHTML = '';
+
       micMuted = false;
       pushToTalkActive = false;
-      // Keep isAdmin from currentUser, don't reset
-      updateParticipantsVisibility();
-      updateDeviceSelectorsVisibility();
-      joiningRoom = false;
+      pushToTalkLatched = false;
+
+      participantsPanel.classList.add('hidden');
+      feedsPanel.classList.add('hidden');
+      playbackPanel.classList.add('hidden');
+      deviceSelectors.classList.remove('active');
+
       enableMicControls(false);
       muteBtn.textContent = 'Mute Mic';
       updateMicStatus();
+      setPlaybackStatus('off', 'Offline');
+      heardChip.className = 'status-chip offline';
+      heardChip.textContent = 'Not heard';
 
-      device = null;
-
-      leaveBtn.disabled = true;
-      nameInput.disabled = false;
-      localNameEl.textContent = displayName
-        ? `${displayName} · not connected`
-        : 'Name not set';
+      el('leave').disabled = true;
+      el('localName').textContent = 'Not connected';
       setRoomButtonsDisabled(false);
-
-      log('Left');
+      selectedRoomLabel.textContent = 'No room selected yet';
+      log('Left the room');
     }
+
+    el('leave').addEventListener('click', () => leaveRoom());
+
+    el('logout').addEventListener('click', async () => {
+      if (socket) leaveRoom();
+      try {
+        await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+      } catch { /* leaving anyway */ }
+      window.location.href = '/auth.html';
+    });
+
+    window.addEventListener('pagehide', () => { if (socket) leaveRoom(); });
   </script>
 </body>
 </html>

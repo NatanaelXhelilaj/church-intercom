@@ -1,13 +1,19 @@
 {
   "name": "church-intercom",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "start": "BYPASS_AUTH=true HTTPS=true PORT=3443 ANNOUNCED_IP=192.168.18.152 node server.js"
+    "start": "node server.js",
+    "dev": "NODE_ENV=development BYPASS_AUTH=true node server.js",
+    "build": "npm run build:vendor",
+    "build:vendor": "esbuild node_modules/mediasoup-client/lib/index.js --bundle --minify --format=iife --global-name=mediasoupClient --platform=browser --define:process.env.NODE_ENV=\\\"production\\\" --outfile=public/vendor/mediasoup-client.js",
+    "test:signalling": "node test/signalling.test.mjs"
   },
   "dependencies": {
-    "@discordjs/opus": "^0.10.0",
     "bcrypt": "^5.1.1",
     "connect-pg-simple": "^9.0.1",
     "cookie-parser": "^1.4.6",
@@ -15,9 +21,11 @@
     "express-session": "^1.18.0",
     "mediasoup": "^3.19.6",
     "mediasoup-client": "^3.12.0",
-    "node-record-lpcm16": "^1.0.1",
     "pg": "^8.11.3",
-    "socket.io": "^4.7.2",
-    "speaker": "^0.5.5"
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "socket.io-client": "^4.7.2"
   }
 }

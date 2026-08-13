@@ -50,11 +50,15 @@ CREATE TRIGGER update_users_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- Create default admin user (password: admin123 - CHANGE THIS IN PRODUCTION!)
--- Password hash for 'admin123' - generated with bcrypt rounds=10
-INSERT INTO users (username, email, password_hash, display_name, is_admin, is_active)
-VALUES ('admin', 'admin@churchintercom.local', '$2b$10$YMnXUmxUXIrHeRkzrvJnROFc0boL4lDCHCBooA66pABhoCN/2vG1u', 'Administrator', TRUE, TRUE)
-ON CONFLICT (username) DO NOTHING;
+-- No administrator is seeded here on purpose.
+--
+-- This file previously created an 'admin' account with the password 'admin123'
+-- and a bcrypt hash committed to a public repository, which meant every
+-- install shipped with the same known credentials.
+--
+-- The first administrator is now created by the application on first boot from
+-- BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD, and only when no admin
+-- account exists yet. See bootstrapAdminUser() in auth.js.
 
 -- Grant appropriate permissions (adjust as needed for your setup)
 -- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO your_app_user;

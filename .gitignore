@@ -147,3 +147,16 @@ vite.config.ts.timestamp-*
 docker-compose.override.yml
 *.sql.backup
 postgres_data/
+
+# Deployment artefacts
+backups/
+certs/*.pem
+public/vendor/
+
+# Real configuration holds the session secret, the database password and the
+# LAN address of this install. .env.example is the template that gets shared.
+.env
+.env.*
+!.env.example
+
+.DS_Store

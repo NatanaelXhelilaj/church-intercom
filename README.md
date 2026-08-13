@@ -1,410 +1,269 @@
 # Church Intercom
 
-A real-time audio communication web application with user authentication for group conversations in churches and similar venues.
+A low-latency audio intercom for church production teams — camera operators,
+sound, lighting, and floor managers talking to each other during a service.
 
-## Features
+Runs as a self-contained appliance on one Linux machine on the church LAN.
+**No internet connection is needed at run time.** Participants join from any
+phone, tablet, or laptop with a browser; no app to install.
 
-- 🔐 **User Authentication** - Secure registration and login with PostgreSQL backend
-- 🎤 **WebRTC Audio Streaming** - Low-latency peer-to-peer audio using mediasoup
-- 👥 **Multiple Rooms** - Support for multiple concurrent audio rooms
-- 🎛️ **Admin Controls** - Kick users, manage house feed (admin-only)
-- 🔊 **House Feed** - Stream venue audio to all participants
-- 📱 **Device Selection** - Choose microphone and speaker devices (desktop admins only)
-- 🎧 **Push-to-Talk** - Physical headset button support
-- 🌙 **Dark Mode** - Automatic dark mode support
+> **Deploying it?** Go straight to **[DEPLOY.md](DEPLOY.md)**. This file covers
+> what the system is and how it works internally.
 
-## Prerequisites
+---
 
-- Node.js (v18 or higher recommended)
-- PostgreSQL (v12 or higher)
-- Modern web browser with WebRTC support
+## What it does
 
-**OR**
+- **Multiple rooms.** Independent audio channels so the camera team and the
+  sound desk are not talking over each other.
+- **Hardware feeds.** Each physical input on a USB audio interface is published
+  as its own **independent mono feed**. Users subscribe to either, both, or
+  neither, with per-feed volume. Typically one is the program mix and the other
+  is a talkback line.
+- **Talk to the building.** An admin can route their microphone out of the
+  server's physical audio output — into the PA, a foldback wedge, or headphones
+  at the desk.
+- **Push-to-talk**, including physical headset buttons.
+- **Admin controls** — kick a participant, choose input/output devices.
 
-- Docker and Docker Compose (for containerized deployment)
+---
 
-## Installation
+## How it works
 
-### Quick Start with Docker (Recommended)
-
-The easiest way to run Church Intercom is using Docker:
-
-```bash
-# Copy environment configuration
-cp .env.docker .env
-
-# Edit .env and set SESSION_SECRET and DB_PASSWORD
-nano .env
-
-# Start the application
-docker-compose up -d
-
-# Access at http://localhost:3000
+```
+ phones / tablets / laptops                    server appliance
+ ┌──────────────────────┐                ┌──────────────────────────────┐
+ │  browser             │   WebRTC       │  mediasoup SFU               │
+ │  mediasoup-client    │◄──── Opus ────►│  (one router, all rooms)     │
+ │  (bundled, no CDN)   │   DTLS/SRTP    │                              │
+ └──────────────────────┘                │      ▲               │       │
+            ▲                            │      │ RTP           │ RTP   │
+            │ HTTPS + Socket.IO          │      │               ▼       │
+            │ (session cookie)           │  ┌────────┐     ┌──────────┐ │
+            └────────────────────────────┤  │ ffmpeg │     │  ffmpeg  │ │
+                                         │  │capture │     │ playback │ │
+                                         │  └────────┘     └──────────┘ │
+                                         │      ▲               │       │
+                                         └──────┼───────────────┼───────┘
+                                                │ ALSA          ▼
+                                          USB audio interface (hw:1,0)
+                                          ch 1 → feed 1   ch 2 → feed 2
 ```
 
-For detailed Docker instructions, see [DOCKER.md](DOCKER.md).
+Audio is a **selective forwarding unit**, not a mesh: each participant sends one
+stream up and receives one per speaker, so CPU and bandwidth scale linearly
+rather than quadratically.
 
-### Manual Installation
+**Capture is a single ffmpeg process, by necessity.** ALSA allows only one
+process to open a hardware device, so two inputs cannot mean two processes. One
+ffmpeg reads all channels and splits them with the `pan` filter into one Opus
+RTP stream per channel, each feeding a persistent mediasoup producer. The
+producers outlive the ffmpeg process, so a capture crash — an unplugged
+interface, a USB re-enumeration — reconnects without disturbing listeners.
 
-### 1. Clone the repository
+### Components
 
-```bash
-cd /Users/natanaelxhelilaj/Documents/Intercom/church-intercom
-```
+| Layer | Choice | Why |
+|---|---|---|
+| Media | mediasoup | SFU; audio-only Opus at 48 kHz |
+| Signalling | Socket.IO | Shares the Express session, so auth is one mechanism |
+| Audio I/O | ffmpeg + ALSA | No native Node audio addons to compile or break |
+| Store | PostgreSQL | User accounts and sessions only |
+| Client | Vanilla JS | No build step for app code, no framework to age |
 
-### 2. Install dependencies
+---
+
+## Repository layout
+
+| Path | Purpose |
+|---|---|
+| `server.js` | HTTP/S, routes, Socket.IO handlers, lifecycle |
+| `config.js` | Env parsing and validation; refuses to boot on bad config |
+| `audio.js` | `AudioCapture` and `AudioPlayback` — ffmpeg supervision |
+| `auth.js` | bcrypt, session middleware, first-admin bootstrap |
+| `db.js` | Pool, startup retry, health probe |
+| `healthcheck.js` | Container healthcheck; exits non-zero when degraded |
+| `public/index.html` | The whole client |
+| `public/vendor/` | mediasoup-client bundle, built at image build time |
+| `deploy/` | systemd unit |
+
+---
+
+## Local development
+
+Requires Node 20+ and ffmpeg. Docker is not needed to develop.
 
 ```bash
 npm install
+npm run build:vendor     # required once — see below
+npm run dev              # NODE_ENV=development BYPASS_AUTH=true
 ```
 
-### 3. Set up PostgreSQL database
+`npm run dev` sets `BYPASS_AUTH=true`, which accepts any username with no
+password and grants admin to any name containing "admin". `config.js` **refuses
+to start** with that flag under `NODE_ENV=production`, so it cannot reach a
+deployment.
 
-Create a new PostgreSQL database:
+Then open <http://localhost:3000>. Microphone access works on `localhost`
+without HTTPS; on any other address it does not.
+
+To develop against a real database instead, run Postgres, apply
+`database.sql`, and copy `.env.example` to `.env`.
+
+### `npm run build:vendor` is not optional
+
+`mediasoup-client` publishes CommonJS with bare specifiers, which a browser
+cannot import. Without this step the page cannot load the audio engine at all.
+The Dockerfile runs it during the image build; locally you run it once after
+`npm install`.
+
+Bundling it also means **the client never contacts a CDN** — the appliance works
+with the internet unplugged.
+
+---
+
+## Configuration
+
+`.env` is the only configuration file. Full reference with commentary is in
+[`.env.example`](.env.example); the essentials:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PORT` | `3000` | |
+| `HTTPS` | `false` | Effectively required — browsers block mic access otherwise |
+| `SSL_KEY_PATH` / `SSL_CERT_PATH` | — | Required when `HTTPS=true`; checked at boot |
+| `ANNOUNCED_IP` | auto-detected | The LAN address given to clients. Set only if multi-homed |
+| `RTP_PORT_MIN` / `RTP_PORT_MAX` | `40000` / `40199` | Must be open, UDP |
+| `ROOMS` | eight defaults | Comma-separated; the client reads this from the server |
+| `SESSION_SECRET` | — | Required; boot fails on the placeholder value |
+| `BOOTSTRAP_ADMIN_PASSWORD` | — | Creates the first admin, first boot only |
+| `AUDIO_CAPTURE_ENABLED` | `false` | |
+| `AUDIO_CAPTURE_DEVICE` | `hw:1,0` | ALSA device — find it with `arecord -l` |
+| `AUDIO_CAPTURE_CHANNELS` | `2` | One independent mono feed per channel |
+| `AUDIO_CHANNEL_<n>_NAME` | `Input <n>` | Shown to users |
+| `AUDIO_PLAYBACK_ENABLED` | `false` | Allows "talk to the building" |
+| `DEBUG_AUDIO` | `false` | Verbose ffmpeg; noisy, and writes cost flash endurance |
+
+Invalid configuration is a **startup failure, not a warning** — a missing
+certificate or placeholder secret stops the boot with an explicit message,
+rather than silently running something insecure.
+
+---
+
+## HTTP API
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `POST /api/login` | — | Rate limited; regenerates the session id |
+| `POST /api/logout` | — | |
+| `GET /api/user` | session | Current user |
+| `GET /api/rooms` | session | Room list — the client's single source |
+| `POST /api/register` | **admin** | Create an account |
+| `GET /api/health` | — | Subsystem status; drives the container healthcheck |
+
+There is no self-registration. An intercom is not a public service, so accounts
+are created by an admin.
+
+`/api/health` returns `200` only when the database and mediasoup worker are both
+up, and includes per-feed `bytesReceived` counters — the only reliable evidence
+that audio is genuinely arriving, since a running ffmpeg proves nothing.
+
+## Socket.IO events
+
+The room is fixed from the handshake and **never read from later messages**.
+Every handler uses the server-side value, which is what prevents a client from
+producing into, or consuming from, a room it never joined.
+
+**Client → server:** `getRtpCapabilities`, `createTransport`,
+`connectTransport`, `produce`, `consume`, `resumeConsumer`, `closeConsumer`,
+`getProducers`, `getFeeds`, `kick` *(admin)*, `setPlayback` *(admin)*
+
+**Server → client:** `peers`, `peer-joined`, `peer-left`, `new-producer`,
+`producer-closed`, `feeds`, `playback-state`, `kicked`, `error`
+
+---
+
+## Security
+
+- bcrypt password hashing; login compares against a dummy hash for unknown
+  users so response timing does not reveal which accounts exist
+- Session cookies `httpOnly`, `sameSite=lax`, and `secure` whenever HTTPS is on
+- Session id regenerated on login (fixation)
+- Login rate limited per address
+- Room membership enforced server-side on every media operation
+- Only the vendored client bundle is served — not `node_modules`
+- Parameterised SQL throughout
+- Same-origin Socket.IO
+
+**Not included:** audit logging, account lockout, 2FA, or per-room
+authorisation. This is a trusted-LAN appliance, and the threat model is
+accidental misuse rather than a determined attacker on the network.
+
+If you are adopting this repository, read **§12 of [DEPLOY.md](DEPLOY.md)** — a
+TLS private key and a `.env` are present in the git history and must be rotated.
+
+---
+
+## Operating it
 
 ```bash
-# Connect to PostgreSQL
-psql -U postgres
-
-# Create database
-CREATE DATABASE church_intercom;
-
-# Exit psql
-\q
+docker compose logs -f app                   # what is happening
+curl -sk https://localhost:3443/api/health   # full subsystem status
+docker compose exec app arecord -l           # what ALSA sees from inside
+sudo systemctl restart church-intercom       # bounce the stack
 ```
 
-Run the database schema:
+The stack restarts itself on failure, recovers capture automatically with
+backoff, retries a slow database rather than crash-looping, caps its own logs so
+it cannot fill the disk, and takes a nightly `pg_dump`. Troubleshooting table is
+in §11 of [DEPLOY.md](DEPLOY.md).
+
+---
+
+## Resilience behaviour
+
+Worth knowing, because these are the things that decide whether a service runs:
+
+- **A dropped connection does not eject you.** Losing Wi-Fi puts the client into
+  *Reconnecting…*; Socket.IO retries forever, and the media session (transports,
+  producers, consumers, feed subscriptions) is rebuilt automatically when it
+  returns. The microphone stream is deliberately kept alive across the gap so
+  the browser does not re-prompt for permission every time.
+- **Joining cannot hang forever.** A 30-second watchdog covers the whole setup —
+  an unanswered permission prompt, a stalled WebRTC handler, a transport that
+  never negotiates. On expiry the user gets a plain-English message and the room
+  picker back, rather than a frozen screen and a page reload.
+- **Screen wake lock** is held while in a room, so a phone on a camera does not
+  sleep and suspend its audio. It cannot survive the user switching apps — no
+  browser API can.
+- **Speaking indicators** are measured server-side by mediasoup, so *"Heard by
+  room"* means the audio genuinely reached the server, not merely that the
+  microphone is open locally.
+
+## Testing
 
 ```bash
-psql -U postgres -d church_intercom -f database.sql
+npm run test:signalling   # against a running stack on :38080
 ```
 
-### 4. Configure environment variables
-
-Copy the default environment file:
-
-```bash
-cp .env.default .env
-```
-
-Edit `.env` and configure your settings:
-
-```bash
-# Database connection
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=church_intercom
-DB_USER=postgres
-DB_PASSWORD=your_password_here
-
-# Session secret (IMPORTANT: Change this!)
-SESSION_SECRET=your-random-secret-here
-
-# Server configuration
-PORT=3000
-ANNOUNCED_IP=127.0.0.1
-
-# HTTPS (optional, for production)
-HTTPS=false
-```
-
-**Important:** Generate a strong session secret for production:
-
-```bash
-# Generate a random secret
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-### 5. Create the first admin user
-
-After running the database schema, a default admin user is created:
-
-- **Username:** admin
-- **Password:** admin123
-
-**⚠️ SECURITY WARNING:** Change this password immediately after first login!
-
-You can update the password directly in the database:
-
-```bash
-# Generate a new password hash with bcrypt
-node -e "const bcrypt = require('bcrypt'); bcrypt.hash('your-new-password', 10).then(hash => console.log(hash));"
-
-# Update in database
-psql -U postgres -d church_intercom -c "UPDATE users SET password_hash='<hash-from-above>' WHERE username='admin';"
-```
-
-## Running the Application
-
-### Development
-
-```bash
-npm start
-```
-
-The server will start on `http://localhost:3000` (or your configured port).
-
-### First-time setup
-
-1. Visit `http://localhost:3000` - you'll be redirected to the login page
-2. Login with the default admin credentials (or register a new account)
-3. Select a room and start communicating!
-
-## Usage
-
-### For Users
-
-1. **Register/Login** - Create an account or login at `/auth.html`
-2. **Select a Room** - Choose from available rooms
-3. **Join** - Click a room button to join
-4. **Audio Controls:**
-   - **Mute/Unmute** - Control your microphone
-   - **Push to Talk** - Hold to temporarily unmute
-   - **Leave Room** - Disconnect from current room
-   - **Logout** - Sign out of your account
-
-### For Admins
-
-Admins have additional capabilities:
-
-- **View All Participants** - See everyone in the room
-- **Kick Users** - Remove disruptive users
-- **House Feed Control** - Start/stop venue audio streaming (per-user)
-- **Stream to Server** - Stream microphone audio to server's speakers/headphone jack
-- **Device Management** - Access to device selection controls
-
-### House Feed (Server Audio)
-
-Configure venue audio streaming by setting the `SERVER_AUDIO_COMMAND` environment variable. This allows users to receive audio from the server's audio input device:
-
-```bash
-# Example: Stream from ALSA audio input (Linux)
-SERVER_AUDIO_COMMAND="ffmpeg -hide_banner -loglevel error -f alsa -i default -ac 2 -ar 48000 -acodec libopus -b:a 128k -payload_type {payloadType} -ssrc {ssrc} -f rtp rtp://{ip}:{port}"
-
-# Example: Stream from macOS audio input
-SERVER_AUDIO_COMMAND="ffmpeg -hide_banner -loglevel error -f avfoundation -i ':0' -ac 2 -ar 48000 -acodec libopus -b:a 128k -payload_type {payloadType} -ssrc {ssrc} -f rtp rtp://{ip}:{port}"
-
-# Custom display name for house feed
-SERVER_AUDIO_NAME="Main Sanctuary Audio"
-```
-
-The placeholders `{ip}`, `{port}`, `{payloadType}`, and `{ssrc}` are automatically replaced at runtime.
-
-### Admin-to-Server Streaming
-
-Admins can stream their microphone audio directly to the server's speakers/headphone jack by configuring the `ADMIN_TO_SERVER_COMMAND` environment variable:
-
-```bash
-# Example: Play to ALSA audio output (Linux)
-ADMIN_TO_SERVER_COMMAND="ffmpeg -hide_banner -loglevel error -protocol_whitelist file,rtp,udp -i rtp://0.0.0.0:{port}?localrtcpport={port} -f alsa default"
-
-# Example: Play to macOS audio output (CoreAudio)
-ADMIN_TO_SERVER_COMMAND="ffmpeg -hide_banner -loglevel error -protocol_whitelist file,rtp,udp -i rtp://0.0.0.0:{port}?localrtcpport={port} -f avfoundation -audio_device_index 0 -"
-
-# Example: Play to specific audio device
-ADMIN_TO_SERVER_COMMAND="ffmpeg -hide_banner -loglevel error -protocol_whitelist file,rtp,udp -i rtp://0.0.0.0:{port}?localrtcpport={port} -f pulse 'alsa_output.usb-device.analog-stereo'"
-```
-
-The `{port}` placeholder is automatically replaced with the port mediasoup assigns to the PlainTransport. This feature is useful for:
-- Making announcements through the venue's PA system
-- Testing audio routing
-- Remote sound checks
-
-## Architecture
-
-### Backend (Node.js)
-
-- **Express.js** - Web server
-- **Socket.IO** - Real-time bidirectional communication
-- **mediasoup** - WebRTC SFU (Selective Forwarding Unit)
-- **PostgreSQL** - User database and session storage
-- **bcrypt** - Password hashing
-
-### Frontend (Vanilla JavaScript)
-
-- **mediasoup-client** - WebRTC client library
-- **Socket.IO Client** - Real-time communication
-- **HTML5 Media APIs** - getUserMedia, WebRTC
-
-### Authentication Flow
-
-1. User registers/logs in via `/api/register` or `/api/login`
-2. Server creates session with PostgreSQL-backed storage
-3. Session cookie is set with `httpOnly` and `sameSite` flags
-4. Socket.IO connections validate session before allowing room access
-5. User info (including admin status) is attached to socket
-
-## Security Features
-
-✅ **Implemented:**
-- User authentication with bcrypt password hashing
-- Session-based authentication with PostgreSQL storage
-- Admin authorization for privileged operations
-- Input validation and sanitization
-- Secure session cookies (httpOnly, sameSite)
-- SQL injection prevention (parameterized queries)
-- HTTPS support
-- Improved error logging
-- Race condition fixes
-
-⚠️ **Production Recommendations:**
-- Enable HTTPS in production
-- Use a strong `SESSION_SECRET`
-- Set up rate limiting (not included, but recommended)
-- Configure firewall rules for mediasoup ports
-- Regular security audits
-- Keep dependencies updated
-
-## Troubleshooting
-
-### Database Connection Errors
-
-```
-Error: Failed to connect to database
-```
-
-**Solution:** Verify PostgreSQL is running and credentials are correct in `.env`
-
-```bash
-# Test connection
-psql -U postgres -d church_intercom -c "SELECT 1;"
-```
-
-### mediasoup-client Loading Errors
-
-```
-Error: Unable to load mediasoup-client
-```
-
-**Solution:** The client attempts multiple fallback CDNs. Check browser console for specific errors. Ensure `mediasoup-client` is installed:
-
-```bash
-npm install mediasoup-client
-```
-
-### Audio Not Working
-
-1. **Check browser permissions** - Allow microphone access
-2. **Check device selection** - Try different input devices (admin only)
-3. **Check network** - Ensure UDP ports are not blocked
-4. **Check ANNOUNCED_IP** - Must be reachable by clients
-
-### Session/Authentication Issues
-
-```
-Error: Authentication required
-```
-
-**Solution:**
-- Clear browser cookies
-- Verify `SESSION_SECRET` is set
-- Check PostgreSQL sessions table exists
-
-## API Endpoints
-
-### Authentication
-
-- `POST /api/register` - Register new user
-- `POST /api/login` - Login
-- `POST /api/logout` - Logout
-- `GET /api/user` - Get current user info (authenticated)
-
-### Health Check
-
-- `GET /api/health` - Server health status
-
-### Socket.IO Events
-
-**Client → Server:**
-- `joinRoom` - Join a room
-- `getRtpCapabilities` - Get router capabilities
-- `createTransport` - Create WebRTC transport
-- `connectTransport` - Connect transport
-- `produce` - Create audio producer
-- `consume` - Create audio consumer
-- `getProducers` - List producers in room
-- `kick` - Kick user (admin only)
-- `setServerFeed` - Toggle house feed (per-user)
-- `setAdminToServer` - Toggle admin-to-server streaming (admin only)
-
-**Server → Client:**
-- `peers` - List of peers in room
-- `peer-joined` - New peer joined
-- `peer-left` - Peer left
-- `new-producer` - New audio producer available
-- `producer-closed` - Producer closed
-- `server-feed-state` - House feed status update
-- `admin-to-server-state` - Admin-to-server streaming status update
-
-## Environment Variables Reference
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | 3000 | Server port |
-| `HTTPS` | false | Enable HTTPS |
-| `SSL_KEY_PATH` | certs/ssl_key.pem | TLS private key path |
-| `SSL_CERT_PATH` | certs/ssl_cert.pem | TLS certificate path |
-| `SSL_CA_PATH` | (empty) | Optional certificate chain |
-| `ANNOUNCED_IP` | 127.0.0.1 | Public IP for clients |
-| `MAX_INCOMING_BITRATE` | 800000 | Max incoming bitrate (bps) |
-| `INITIAL_AVAILABLE_BITRATE` | 1000000 | Initial outgoing bitrate (bps) |
-| `DB_HOST` | localhost | PostgreSQL host |
-| `DB_PORT` | 5432 | PostgreSQL port |
-| `DB_NAME` | church_intercom | Database name |
-| `DB_USER` | postgres | Database user |
-| `DB_PASSWORD` | (empty) | Database password |
-| `DB_POOL_MAX` | 20 | Max database connections |
-| `DB_IDLE_TIMEOUT` | 30000 | Connection idle timeout (ms) |
-| `DB_CONNECTION_TIMEOUT` | 5000 | Connection timeout (ms) |
-| `SESSION_SECRET` | (required) | Session encryption secret |
-| `SERVER_AUDIO_COMMAND` | (empty) | Command to capture venue audio |
-| `SERVER_AUDIO_NAME` | House Feed | Display name for server audio |
-| `SERVER_AUDIO_PAYLOAD_TYPE` | 100 | RTP payload type for server audio |
-| `ADMIN_TO_SERVER_COMMAND` | (empty) | Command to play admin audio to server speakers |
-
-## Development
-
-### Database Migrations
-
-When making database schema changes, create a new migration file and apply manually:
-
-```bash
-psql -U postgres -d church_intercom -f your_migration.sql
-```
-
-### Testing
-
-Currently, there are no automated tests. Consider adding:
-- Unit tests for authentication functions
-- Integration tests for Socket.IO events
-- End-to-end tests for the full user flow
-
-## HTTPS Setup
-
-Browsers require HTTPS (or localhost) for microphone access. To serve this app over HTTPS:
-
-1. Generate a certificate (for development):
-```bash
-openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.crt -days 365
-```
-
-2. Update `.env`:
-```bash
-HTTPS=true
-SSL_KEY_PATH=/absolute/path/to/server.key
-SSL_CERT_PATH=/absolute/path/to/server.crt
-```
-
-For local development, you can use the sample certificates in `certs/ssl_key.pem` and `certs/ssl_cert.pem`.
-
-## License
-
-[Add your license here]
-
-## Contributing
-
-[Add contribution guidelines here]
-
-## Support
-
-For issues and questions, please use the GitHub issue tracker or contact [your-contact-info].
+Covers login, session cookies, room-scoping enforcement, and the full
+reconnection contract (forced transport close → automatic reconnect → new
+socket id → room state re-delivered).
+
+Audio capture can be exercised without hardware — see §8 of
+[DEPLOY.md](DEPLOY.md) for the two-tone `lavfi` setup.
+
+## Known limitations
+
+- **One mediasoup worker.** Fine for a few dozen participants on one machine;
+  beyond that you would want a worker per CPU core and a router per room.
+- **One audio interface.** Capture and playback share a device.
+- **One person at a time** on the server output — ALSA will not mix two writers
+  to a hardware device.
+- **Feed level meters are client-side.** mediasoup's audio level observer reads
+  the `ssrc-audio-level` RTP header extension, which browsers send and ffmpeg
+  does not, so hardware feeds are metered from the decoded audio in the browser
+  instead. `bytesReceived` in `/api/health` is the server-side equivalent.
+- **iOS suspends backgrounded tabs.** If someone switches apps, their audio
+  stops. Keep the app foregrounded; a dedicated device per position is more
+  reliable than a personal phone.

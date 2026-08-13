@@ -1,0 +1,71 @@
+#!/bin/sh
+#
+# Start the intercom, after working out which address to advertise to clients.
+#
+# mediasoup hands ANNOUNCED_IP straight to the browser as the ICE candidate, so
+# a wrong value means the page loads and the audio silently never arrives. The
+# appliance gets its address from DHCP, so a hard-coded value goes stale the
+# first time the church changes routers or subnets -- which has already
+# happened once here (192.168.18.170 -> 192.168.1.100). Detecting it every boot
+# means the box comes up correct on whatever LAN it is plugged into.
+#
+# Set ANNOUNCED_IP in /etc/church-intercom.env to override detection, e.g. when
+# the box has a static address or sits behind a NAT.
+
+set -eu
+
+APP_DIR="${INTERCOM_APP_DIR:-/home/ubuntu/church-intercom}"
+NODE_BIN="${NODE_BIN:-/usr/bin/node}"
+
+# Interfaces that are never the LAN address: loopback, plus the virtual ones
+# microk8s/Calico, Docker and friends bring up.
+VIRTUAL_IFACE_RE='^(lo|cali|vxlan|docker|br-|veth|tun|tap|virbr|kube|flannel)'
+
+# Preferred: the source address the kernel picks to reach the default gateway.
+# On a multi-homed box this is the one clients can actually route back to.
+lan_ip_via_default_route() {
+    gw=$(ip -4 route show default 2>/dev/null | awk '{ print $3; exit }')
+    [ -n "${gw:-}" ] || return 1
+    ip -4 route get "$gw" 2>/dev/null \
+        | sed -n 's/.*[[:space:]]src[[:space:]]\([0-9.][0-9.]*\).*/\1/p' \
+        | head -n 1
+}
+
+# Fallback for a LAN with no gateway: first global IPv4 on a real interface.
+lan_ip_via_first_global() {
+    ip -4 -oneline addr show scope global 2>/dev/null \
+        | awk -v re="$VIRTUAL_IFACE_RE" '$2 !~ re { split($4, a, "/"); print a[1]; exit }'
+}
+
+detect_ip() {
+    found=$(lan_ip_via_default_route || true)
+    [ -n "${found:-}" ] || found=$(lan_ip_via_first_global || true)
+    printf '%s' "${found:-}"
+}
+
+if [ -n "${ANNOUNCED_IP:-}" ]; then
+    echo "church-intercom: using configured ANNOUNCED_IP=$ANNOUNCED_IP"
+else
+    # network-online.target should have settled by now, but a cold boot can beat
+    # the switch to link-up. Keep looking for a minute before giving up.
+    attempt=0
+    while [ "$attempt" -lt 30 ]; do
+        ANNOUNCED_IP=$(detect_ip)
+        [ -z "$ANNOUNCED_IP" ] || break
+        attempt=$((attempt + 1))
+        sleep 2
+    done
+
+    if [ -n "${ANNOUNCED_IP:-}" ]; then
+        echo "church-intercom: detected ANNOUNCED_IP=$ANNOUNCED_IP"
+        export ANNOUNCED_IP
+    else
+        # A server that is up but unroutable still beats no server at all: it
+        # can be reached over SSH and fixed. Fall through to the .env value.
+        echo "church-intercom: WARNING no LAN address found, falling back to .env" >&2
+        unset ANNOUNCED_IP
+    fi
+fi
+
+cd "$APP_DIR"
+exec "$NODE_BIN" server.js
