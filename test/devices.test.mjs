@@ -6,7 +6,7 @@
 // below are verbatim `arecord -l` / `aplay -l` output.
 import assert from "node:assert/strict";
 
-import { parseAlsaList, parseAvfoundationAudio } from "../devices.js";
+import { ffmpegAudioDevice, parseAlsaList, parseAvfoundationAudio } from "../devices.js";
 
 let failures = 0;
 
@@ -81,6 +81,27 @@ check("audio devices only, not cameras", parseAvfoundationAudio(AVFOUNDATION), [
 
 check("no audio section", parseAvfoundationAudio("[AVFoundation indev @ 0x7f8] AVFoundation video devices:\n[AVFoundation indev @ 0x7f8] [0] FaceTime HD Camera\n"), []);
 check("empty output", parseAvfoundationAudio(""), []);
+
+console.log("\nffmpeg device rewriting (hw: opens raw and will not convert)");
+
+// The failure this prevents is not subtle: ffmpeg exits with "cannot set
+// channel count to 1 (Invalid argument)" and nothing is ever played.
+check("hw: becomes plughw:", ffmpegAudioDevice("hw:0,0"), "plughw:0,0");
+check("multi-digit card and device", ffmpegAudioDevice("hw:10,3"), "plughw:10,3");
+
+// Anything that already routes through a plugin, or names a plugin directly,
+// must be passed through untouched.
+check("plughw: left alone", ffmpegAudioDevice("plughw:1,0"), "plughw:1,0");
+check("default left alone", ffmpegAudioDevice("default"), "default");
+check("sysdefault left alone", ffmpegAudioDevice("sysdefault:CARD=PCH"), "sysdefault:CARD=PCH");
+
+// avfoundation indices are ":0", and lavfi carries a generator expression;
+// prefixing either with plughw would break a working configuration.
+check("avfoundation untouched", ffmpegAudioDevice(":1", "avfoundation"), ":1");
+check("lavfi untouched", ffmpegAudioDevice("sine=f=440", "lavfi"), "sine=f=440");
+check("hw: under a non-alsa format untouched", ffmpegAudioDevice("hw:0,0", "lavfi"), "hw:0,0");
+
+check("undefined device", ffmpegAudioDevice(undefined), undefined);
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);

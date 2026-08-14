@@ -46,6 +46,29 @@ async function captureOutput(command, args) {
 }
 
 /**
+ * Rewrites an ALSA `hw:` device to the `plughw:` form before it is handed to
+ * ffmpeg.
+ *
+ * `hw:` opens the card raw: the sample rate, sample format and channel count
+ * have to be exactly what the hardware accepts, and anything else fails the
+ * open outright. On this codec that is a stereo-only device, so a mono stream
+ * dies with "cannot set channel count to 1 (Invalid argument)" and playback
+ * stops before a single sample is written. `plughw:` is the same device with
+ * ALSA's conversion layer in front, which resamples and remixes as needed.
+ *
+ * The `hw:CARD,DEV` form is kept everywhere else on purpose. It is what
+ * `arecord -l` reports, what the admin picks from, and what the allowlist
+ * compares against — these strings become ffmpeg arguments, so widening what
+ * that check accepts would widen what ffmpeg can be told to open. Only the
+ * value passed to ffmpeg is rewritten.
+ */
+export function ffmpegAudioDevice(device, format = "alsa") {
+  if (format !== "alsa" || typeof device !== "string") return device;
+  // Leave `default`, `sysdefault:…`, `dmix:…` and an explicit `plughw:` alone.
+  return device.startsWith("hw:") ? `plughw:${device.slice(3)}` : device;
+}
+
+/**
  * Parses `arecord -l` / `aplay -l`, whose lines look like:
  *   card 1: USB [Scarlett 2i2 USB], device 0: USB Audio [USB Audio]
  */

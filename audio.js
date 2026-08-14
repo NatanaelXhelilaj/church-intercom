@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 
 import config from "./config.js";
+import { ffmpegAudioDevice } from "./devices.js";
 
 const OPUS_PAYLOAD_TYPE = 111;
 const OPUS_CLOCK_RATE = 48000;
@@ -242,7 +243,7 @@ export class AudioCapture {
       args.push("-ac", String(channels.length), "-ar", String(sampleRate));
     }
 
-    args.push("-i", device);
+    args.push("-i", ffmpegAudioDevice(device, format));
 
     // `pan` is used rather than `channelsplit` because it works for any channel
     // count without needing a named layout (quad, 5.1, ...).
@@ -484,7 +485,7 @@ export class AudioPlayback {
           "-flags", "low_delay",
           "-i", sdpPath,
           "-f", this.settings.format,
-          this.settings.device,
+          ffmpegAudioDevice(this.settings.device, this.settings.format),
         ],
         { stdio: ["ignore", "ignore", "pipe"] }
       );
