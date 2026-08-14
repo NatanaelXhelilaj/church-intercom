@@ -40,6 +40,48 @@ function reserveUdpPort() {
   });
 }
 
+/**
+ * Signals a child process and waits for it to actually be gone, escalating to
+ * SIGKILL if it ignores the polite request.
+ *
+ * The waiting is the point. A sound card is an exclusive resource: ffmpeg holds
+ * the ALSA device open until the moment it exits, and an ffmpeg blocked on an
+ * RTP read can take several seconds to notice SIGTERM. Returning before it has
+ * gone lets the next session spawn an ffmpeg that finds the card busy, which
+ * fails the open and leaves the stream silent — intermittently, because it only
+ * happens when the restart lands inside that window.
+ */
+export function terminateChild(child, graceMs = 3000) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(escalate);
+      clearTimeout(giveUp);
+      resolve();
+    };
+
+    const escalate = setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch { /* already gone */ }
+    }, graceMs);
+
+    // A process wedged in uninterruptible IO survives even SIGKILL. Waiting
+    // forever would hang the intercom, so past this point we accept the risk of
+    // a busy card over a request that never returns.
+    const giveUp = setTimeout(finish, graceMs + 2000);
+
+    child.once("exit", finish);
+
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      finish();
+    }
+  });
+}
+
 function randomSsrc() {
   // RTP SSRC is an unsigned 32-bit value, but ffmpeg's `-ssrc` option is parsed
   // as a *signed* int and rejects anything above 2147483647 with "out of range",
@@ -346,12 +388,12 @@ export class AudioCapture {
     }
 
     if (this.child) {
-      try {
-        this.child.kill("SIGTERM");
-      } catch {
-        // Already gone.
-      }
+      // Wait for the card to be released rather than just asking. A restart
+      // that spawns the next capture while this one still holds the device
+      // fails the open, and the house feed comes back silent.
+      const child = this.child;
       this.child = null;
+      await terminateChild(child);
     }
 
     for (const feed of this.feeds) {
@@ -532,7 +574,9 @@ export class AudioPlayback {
       // Roll back anything that did get created so a failed start leaves no
       // orphaned transport, process, or temp file behind.
       this.session = null;
-      try { child?.kill("SIGTERM"); } catch { /* already gone */ }
+      // Same reasoning as stop(): a start that failed half way must not leave
+      // an ffmpeg holding the card while the admin taps the button again.
+      await terminateChild(child);
       if (sdpPath) {
         try { fs.unlinkSync(sdpPath); } catch { /* already removed */ }
       }
@@ -575,9 +619,16 @@ export class AudioPlayback {
 
     this.session = null;
 
-    try { session.child?.kill("SIGTERM"); } catch { /* already gone */ }
+    // Close the mediasoup side first so no more RTP is sent at a process that
+    // is on its way out, then wait for ffmpeg to release the sound card. The
+    // wait is what makes an immediate restart safe: `this.session` is already
+    // null here, so nothing else stops the next start() from spawning an ffmpeg
+    // while this one still owns the device.
     try { session.consumer?.close(); } catch { /* already closed */ }
     try { session.transport?.close(); } catch { /* already closed */ }
+
+    await terminateChild(session.child);
+
     try { fs.unlinkSync(session.sdpPath); } catch { /* already removed */ }
 
     log(`playback stopped for ${session.socketId}: ${reason}`);
