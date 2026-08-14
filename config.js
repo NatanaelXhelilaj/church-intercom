@@ -262,7 +262,13 @@ const config = {
     playback: {
       enabled: AUDIO_PLAYBACK_ENABLED,
       device: str("AUDIO_PLAYBACK_DEVICE", "hw:1,0"),
+      // ffmpeg output device. "alsa" on the Linux appliance; a Mac used for
+      // development writes through "audiotoolbox" instead.
+      format: str("AUDIO_PLAYBACK_FORMAT", process.platform === "darwin" ? "audiotoolbox" : "alsa"),
     },
+    // Where an admin's runtime choice of sound card is remembered. Kept out of
+    // .env because that file is hand-edited and read-only on the appliance.
+    settingsPath: str("AUDIO_SETTINGS_PATH", path.join(__dirname, "data", "audio-devices.json")),
   },
 
   rooms: str(

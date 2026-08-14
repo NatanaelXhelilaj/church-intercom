@@ -771,6 +771,31 @@
       <p class="subtle house-feed-help">Only one person can hold the output at a time.</p>
     </section>
 
+    <section id="serverAudioPanel" class="panel hidden" aria-live="polite">
+      <div class="panel-header">
+        <h2>Server Audio Interface</h2>
+        <span class="subtle">Which sound card the server itself uses (admin only).</span>
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="serverInputSelect">Server input (feeds the rooms)</label>
+        <select id="serverInputSelect"></select>
+        <span id="serverInputNote" class="subtle hidden"></span>
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="serverOutputSelect">Server output (talk to the building)</label>
+        <select id="serverOutputSelect"></select>
+        <span id="serverOutputNote" class="subtle hidden"></span>
+      </div>
+      <div class="house-feed-body">
+        <button id="serverAudioApply" class="secondary">Apply</button>
+        <button id="serverAudioRefresh" class="secondary">Rescan devices</button>
+        <span id="serverAudioStatus" class="subtle" role="status"></span>
+      </div>
+      <p class="subtle house-feed-help">Changing the input restarts the capture without
+        disconnecting anyone. Changing the output stops any stream currently going to the
+        building.</p>
+    </section>
+
     <section id="remotes" class="panel participants-panel hidden">
       <div class="panel-header">
         <h2>Participants</h2>
@@ -1607,6 +1632,130 @@
         updatePlaybackControls();
       });
     });
+
+    // ------------------------------------------------ server audio interface
+
+    // Which sound card the *server* records from and plays out of. Deliberately
+    // not gated on being in a room: someone setting up the desk wants to pick
+    // the interface before anyone joins. The endpoints behind this are
+    // admin-only server-side, so hiding the panel is presentation, not security.
+
+    const serverAudioPanel = el('serverAudioPanel');
+    const serverInputSelect = el('serverInputSelect');
+    const serverOutputSelect = el('serverOutputSelect');
+    const serverInputNote = el('serverInputNote');
+    const serverOutputNote = el('serverOutputNote');
+    const serverAudioApply = el('serverAudioApply');
+    const serverAudioRefresh = el('serverAudioRefresh');
+    const serverAudioStatus = el('serverAudioStatus');
+
+    function fillDeviceSelect(select, devices, selected, emptyLabel) {
+      select.innerHTML = '';
+
+      if (devices.length === 0) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = emptyLabel;
+        select.appendChild(option);
+        select.disabled = true;
+        return;
+      }
+
+      for (const device of devices) {
+        const option = document.createElement('option');
+        option.value = device.id;
+        // The id is what an operator matches against the back of the machine,
+        // so it stays visible rather than being hidden behind a friendly name.
+        option.textContent = `${device.name} (${device.id})`;
+        select.appendChild(option);
+      }
+
+      select.disabled = false;
+      if (selected && devices.some((device) => device.id === selected)) {
+        select.value = selected;
+      }
+    }
+
+    function showNote(element, text) {
+      element.textContent = text || '';
+      element.classList.toggle('hidden', !text);
+    }
+
+    async function loadServerAudioDevices() {
+      if (!isAdmin) return;
+
+      serverAudioStatus.textContent = 'Scanning…';
+      try {
+        const response = await fetch('/api/audio/devices', { credentials: 'include' });
+        if (!response.ok) throw new Error(`Server said ${response.status}`);
+        const data = await response.json();
+
+        fillDeviceSelect(serverInputSelect, data.input, data.selected.input,
+                         'No capture devices found');
+
+        // On a platform where the output cannot be enumerated, offering the
+        // one device we happen to know about would imply a choice that is not
+        // actually being made.
+        fillDeviceSelect(serverOutputSelect,
+                         data.outputSelectable ? data.output : [],
+                         data.selected.output,
+                         data.outputSelectable ? 'No playback devices found' : 'System default');
+
+        showNote(serverInputNote, data.notes?.input);
+        showNote(serverOutputNote, data.notes?.output);
+
+        const parts = [];
+        if (!data.capture.enabled) parts.push('capture is disabled in config');
+        else parts.push(data.capture.running ? 'capture running' : 'capture not running');
+        if (!data.playback.enabled) parts.push('output disabled in config');
+        serverAudioStatus.textContent = parts.join(' · ');
+      } catch (error) {
+        serverAudioStatus.textContent = `Could not read devices: ${error.message}`;
+      }
+    }
+
+    async function applyServerAudioDevices() {
+      serverAudioApply.disabled = true;
+      serverAudioStatus.textContent = 'Applying…';
+
+      try {
+        const body = {};
+        if (!serverInputSelect.disabled && serverInputSelect.value) {
+          body.inputDevice = serverInputSelect.value;
+        }
+        if (!serverOutputSelect.disabled && serverOutputSelect.value) {
+          body.outputDevice = serverOutputSelect.value;
+        }
+
+        const response = await fetch('/api/audio/devices', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Server said ${response.status}`);
+
+        const notes = [];
+        if (data.captureRestarted) notes.push('capture restarted');
+        if (data.playbackInterrupted) notes.push('the stream to the building was stopped');
+        serverAudioStatus.textContent = notes.length
+          ? `Saved — ${notes.join(', ')}.`
+          : 'Saved.';
+      } catch (error) {
+        serverAudioStatus.textContent = `Failed: ${error.message}`;
+      } finally {
+        serverAudioApply.disabled = false;
+      }
+    }
+
+    serverAudioApply.addEventListener('click', applyServerAudioDevices);
+    serverAudioRefresh.addEventListener('click', loadServerAudioDevices);
+
+    if (isAdmin) {
+      serverAudioPanel.classList.remove('hidden');
+      loadServerAudioDevices();
+    }
 
     // --------------------------------------------------------------- local mic
 

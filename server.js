@@ -17,9 +17,15 @@ import {
   loginUser,
   getUserById,
   requireAuth,
+  requireAdmin,
   authenticateSocket,
   bootstrapAdminUser,
 } from "./auth.js";
+import {
+  describeAudioDevices,
+  loadDeviceSelection,
+  saveDeviceSelection,
+} from "./devices.js";
 import pool, { waitForDatabase, checkDatabase, closeDatabase } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -262,7 +268,93 @@ async function start() {
 
   const capture = new AudioCapture(router);
   const playback = new AudioPlayback(router);
+
+  // A device an admin picked previously wins over the .env default, and has to
+  // be applied before capture starts or the first ffmpeg opens the wrong card.
+  const savedDevices = loadDeviceSelection();
+  if (savedDevices.captureDevice) {
+    config.audio.capture.device = savedDevices.captureDevice;
+  }
+  if (savedDevices.playbackDevice) {
+    config.audio.playback.device = savedDevices.playbackDevice;
+  }
+
   await capture.start();
+
+  // ------------------------------------------------- server audio interfaces
+
+  // Admin-only: this chooses which sound card the whole building hears and is
+  // heard through. requireAdmin re-derives the rule rather than trusting a
+  // long-lived session cookie.
+  app.get("/api/audio/devices", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const devices = await describeAudioDevices({
+        captureDevice: config.audio.capture.device,
+        playbackDevice: config.audio.playback.device,
+      });
+      res.json({
+        ...devices,
+        capture: { enabled: config.audio.capture.enabled, running: capture.running },
+        playback: { enabled: config.audio.playback.enabled, active: playback.active },
+      });
+    } catch (error) {
+      console.error("Device list error:", error.message);
+      res.status(500).json({ error: "Could not list the server's audio devices" });
+    }
+  });
+
+  app.post("/api/audio/devices", requireAuth, requireAdmin, async (req, res) => {
+    const { inputDevice, outputDevice } = req.body || {};
+
+    try {
+      const devices = await describeAudioDevices({
+        captureDevice: config.audio.capture.device,
+        playbackDevice: config.audio.playback.device,
+      });
+
+      // Every value must be one the server itself just reported. These strings
+      // become ffmpeg arguments, and an allowlist is the difference between
+      // choosing a sound card and choosing what ffmpeg opens.
+      const resolve = (value, list, label) => {
+        if (value == null || value === "") return null;
+        if (typeof value !== "string" || !list.some((device) => device.id === value)) {
+          throw new Error(`Unknown ${label} device`);
+        }
+        return value;
+      };
+
+      const nextInput = resolve(inputDevice, devices.input, "input");
+      const nextOutput = resolve(outputDevice, devices.output, "output");
+
+      const captureChanged = nextInput ? capture.setDevice(nextInput) : false;
+      const playbackInterrupted = nextOutput ? await playback.setDevice(nextOutput) : false;
+
+      saveDeviceSelection({
+        captureDevice: config.audio.capture.device,
+        playbackDevice: config.audio.playback.device,
+      });
+
+      if (playbackInterrupted) {
+        // Whoever held the output still believes they are streaming. `io` is
+        // created further down in start(); by the time a request lands here it
+        // exists.
+        io.emit("playback-state", playback.getStatus());
+      }
+
+      res.json({
+        success: true,
+        selected: {
+          input: config.audio.capture.device,
+          output: config.audio.playback.device,
+        },
+        captureRestarted: captureChanged,
+        playbackInterrupted,
+      });
+    } catch (error) {
+      console.warn("Device selection rejected:", error.message);
+      res.status(400).json({ error: error.message });
+    }
+  });
 
   /**
    * Drives the "who is talking" indicators.
@@ -437,7 +529,12 @@ async function start() {
       admin: socket.data.isAdmin,
     });
 
-    socket.on("getRtpCapabilities", (callback) => {
+    // Signature must match every other handler here: the client's request()
+    // helper always emits a payload before the ack, so binding the first
+    // parameter to the callback silently captures the payload instead. With
+    // optional chaining that failed invisibly -- no ack, no error -- and the
+    // client hung in establishMedia() until its 30s watchdog gave up.
+    socket.on("getRtpCapabilities", (_payload, callback) => {
       callback?.(router.rtpCapabilities);
     });
 

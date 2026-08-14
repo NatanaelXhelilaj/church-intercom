@@ -11,7 +11,9 @@
     "dev": "NODE_ENV=development BYPASS_AUTH=true node server.js",
     "build": "npm run build:vendor",
     "build:vendor": "esbuild node_modules/mediasoup-client/lib/index.js --bundle --minify --format=iife --global-name=mediasoupClient --platform=browser --define:process.env.NODE_ENV=\\\"production\\\" --outfile=public/vendor/mediasoup-client.js",
-    "test:signalling": "node test/signalling.test.mjs"
+    "test:signalling": "node test/signalling.test.mjs",
+    "test:admin-rule": "node test/admin-rule.test.mjs",
+    "test:devices": "node test/devices.test.mjs"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",

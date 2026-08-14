@@ -116,6 +116,42 @@ export class AudioCapture {
     };
   }
 
+  /**
+   * Repoints capture at a different sound card while the server keeps running.
+   *
+   * Only the ffmpeg process is replaced. Transports and producers outlive it by
+   * design, so everyone listening to a feed stays connected across the swap
+   * instead of having their audio element torn down and rebuilt.
+   */
+  setDevice(device) {
+    if (!device || device === this.settings.device) return false;
+
+    log(`capture device changing: ${this.settings.device} -> ${device}`);
+    this.settings.device = device;
+    this.lastError = null;
+
+    // Any pending retry is for the old device, and its backoff may be tens of
+    // seconds by now. Drop it and start the new device from a clean delay.
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+    this.restartDelayMs = this.settings.restartDelayMs;
+
+    const alive =
+      this.child && this.child.exitCode === null && this.child.signalCode === null;
+
+    if (alive) {
+      // The exit handler respawns; spawning here too would leave two ffmpegs
+      // fighting over one card.
+      try { this.child.kill("SIGTERM"); } catch { /* already gone */ }
+    } else if (this.settings.enabled && this.feeds.length > 0) {
+      this.#spawnCapture();
+    }
+
+    return true;
+  }
+
   async start() {
     if (!this.settings.enabled) {
       log("capture disabled (AUDIO_CAPTURE_ENABLED is not set)");
@@ -363,6 +399,23 @@ export class AudioPlayback {
   }
 
   /**
+   * Repoints the output. The device name is only read when ffmpeg is spawned,
+   * so a live stream would carry on feeding the old card — it is stopped rather
+   * than left running somewhere the admin no longer expects it to be heard.
+   * Returns whether a stream was interrupted, so the caller can say so.
+   */
+  async setDevice(device) {
+    if (!device || device === this.settings.device) return false;
+
+    log(`playback device changing: ${this.settings.device} -> ${device}`);
+    this.settings.device = device;
+
+    if (!this.active) return false;
+    await this.stop(null, "output device changed");
+    return true;
+  }
+
+  /**
    * Only one stream can own the output device at a time — ALSA will not mix two
    * writers to a hardware device, and two people talking over the house
    * speakers at once is not desirable anyway.
@@ -430,7 +483,7 @@ export class AudioPlayback {
           "-fflags", "+nobuffer",
           "-flags", "low_delay",
           "-i", sdpPath,
-          "-f", "alsa",
+          "-f", this.settings.format,
           this.settings.device,
         ],
         { stdio: ["ignore", "ignore", "pipe"] }

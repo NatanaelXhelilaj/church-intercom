@@ -13,6 +13,26 @@ const DUMMY_HASH = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
 const USERNAME_REGEX = /^[a-zA-Z0-9_-]{3,50}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Admin usernames must say so: "admin", "admin2", "sound-admin" all pass. */
+const ADMIN_USERNAME_REGEX = /admin/i;
+
+/**
+ * The single place that decides whether someone gets the admin surface.
+ *
+ * Two conditions, both required: the database flag, and "admin" in the
+ * username. The username rule can only ever take privilege away — it is a
+ * filter over is_admin, never a grant — so an account cannot become an admin
+ * merely by being named one.
+ *
+ * Every path that reports isAdmin goes through here. Admin rights gate real
+ * capability (kicking people out of a room, taking over the building's
+ * speakers, repointing the server's sound card), so a client-side check is
+ * decoration; this is the check that counts.
+ */
+export function resolveAdmin(username, isAdminFlag) {
+  return !!isAdminFlag && ADMIN_USERNAME_REGEX.test(String(username || ""));
+}
+
 // Validate username format
 function validateUsername(username) {
   if (!username || typeof username !== "string") {
@@ -86,6 +106,15 @@ export async function registerUser(username, email, password, displayName, isAdm
     throw new Error(displayNameValidation.error);
   }
 
+  // Refuse the combination outright rather than storing an is_admin flag that
+  // resolveAdmin() will silently ignore at every login. A half-privileged
+  // account is far more confusing to debug than a rejected form.
+  if (isAdmin && !ADMIN_USERNAME_REGEX.test(username)) {
+    throw new Error(
+      'An administrator\'s username must contain "admin" (for example "admin" or "sound-admin")'
+    );
+  }
+
   const sanitizedDisplayName = displayNameValidation.sanitized;
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
@@ -132,7 +161,7 @@ export async function loginUser(usernameOrEmail, password) {
       username: usernameOrEmail.toLowerCase(),
       email: `${usernameOrEmail.toLowerCase()}@example.com`,
       displayName: usernameOrEmail,
-      isAdmin: usernameOrEmail.toLowerCase().includes("admin"),
+      isAdmin: resolveAdmin(usernameOrEmail, true),
       isActive: true,
     };
   }
@@ -171,7 +200,7 @@ export async function loginUser(usernameOrEmail, password) {
     username: user.username,
     email: user.email,
     displayName: user.display_name,
-    isAdmin: user.is_admin,
+    isAdmin: resolveAdmin(user.username, user.is_admin),
     isActive: user.is_active,
   };
 }
@@ -202,6 +231,18 @@ export async function bootstrapAdminUser() {
     return;
   }
 
+  // Caught here rather than left to blow up the boot: a misnamed
+  // BOOTSTRAP_ADMIN_USERNAME is a config typo, not a reason to refuse to run
+  // an intercom that otherwise works for everyone else.
+  if (!ADMIN_USERNAME_REGEX.test(bootstrapAdminUsername)) {
+    console.warn(
+      `\nBOOTSTRAP_ADMIN_USERNAME "${bootstrapAdminUsername}" does not contain "admin",\n` +
+        "so it cannot hold administrator rights. No admin account was created.\n" +
+        'Rename it (for example "admin") and restart.\n'
+    );
+    return;
+  }
+
   await registerUser(
     bootstrapAdminUsername,
     bootstrapAdminEmail,
@@ -222,7 +263,7 @@ export async function getUserById(userId, session = null) {
       username: session.username || 'user',
       email: `${session.username || 'user'}@example.com`,
       displayName: session.displayName || session.username || 'User',
-      isAdmin: session.isAdmin || false,
+      isAdmin: resolveAdmin(session.username, session.isAdmin),
       isActive: true,
       createdAt: new Date(),
       lastLogin: new Date(),
@@ -248,7 +289,7 @@ export async function getUserById(userId, session = null) {
       username: user.username,
       email: user.email,
       displayName: user.display_name,
-      isAdmin: user.is_admin,
+      isAdmin: resolveAdmin(user.username, user.is_admin),
       isActive: user.is_active,
       createdAt: user.created_at,
       lastLogin: user.last_login,
@@ -272,7 +313,10 @@ export function requireAdmin(req, res, next) {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ error: "Authentication required" });
   }
-  if (!req.session.isAdmin) {
+  // Re-derived rather than trusting session.isAdmin on its own: sessions live
+  // for 30 days, so one issued before the username rule existed would still be
+  // carrying an isAdmin flag that the rule would now refuse.
+  if (!resolveAdmin(req.session.username, req.session.isAdmin)) {
     return res.status(403).json({ error: "Admin privileges required" });
   }
   next();
@@ -297,7 +341,9 @@ export async function authenticateSocket(socket, next) {
     socket.data.userId = user.id;
     socket.data.username = user.username;
     socket.data.displayName = user.displayName;
-    socket.data.isAdmin = user.isAdmin;
+    // getUserById already applied the rule; re-stating it keeps the socket
+    // surface (kick, playback, device selection) safe if that ever changes.
+    socket.data.isAdmin = resolveAdmin(user.username, user.isAdmin);
 
     next();
   } catch (error) {

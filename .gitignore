@@ -152,6 +152,8 @@ postgres_data/
 backups/
 certs/*.pem
 public/vendor/
+# Runtime state: which sound card an admin picked on this particular box.
+data/
 
 # Real configuration holds the session secret, the database password and the
 # LAN address of this install. .env.example is the template that gets shared.
