@@ -82,6 +82,19 @@ export function terminateChild(child, graceMs = 3000) {
   });
 }
 
+/**
+ * ffmpeg reports plenty of routine progress on stderr, so only real problems
+ * are surfaced unless DEBUG_AUDIO is on -- the appliance logs to a journal on
+ * flash and writes cost endurance.
+ *
+ * "xrun" earns its place here: an ALSA underrun is what a starved output sounds
+ * like, and it is the audible artefact users actually report ("a noise that
+ * repeats after I stop talking"). It was previously filtered out, which made
+ * that bug invisible in the logs while it was happening.
+ */
+const FFMPEG_PROBLEM =
+  /error|cannot|unable|no such|denied|busy|xrun|underrun|overrun/i;
+
 function randomSsrc() {
   // RTP SSRC is an unsigned 32-bit value, but ffmpeg's `-ssrc` option is parsed
   // as a *signed* int and rejects anything above 2147483647 with "out of range",
@@ -324,9 +337,7 @@ export class AudioCapture {
     child.stderr.on("data", (chunk) => {
       const message = chunk.toString().trim();
       if (!message) return;
-      // ffmpeg reports normal progress on stderr; only surface real problems
-      // unless debugging, otherwise this fills the USB stick with logs.
-      if (config.debugAudio || /error|cannot|unable|no such|denied|busy/i.test(message)) {
+      if (config.debugAudio || FFMPEG_PROBLEM.test(message)) {
         log(`ffmpeg: ${message}`);
         this.lastError = message;
       }
@@ -537,7 +548,7 @@ export class AudioPlayback {
       child.stderr.on("data", (chunk) => {
         const message = chunk.toString().trim();
         if (!message) return;
-        if (config.debugAudio || /error|cannot|unable|no such|denied|busy/i.test(message)) {
+        if (config.debugAudio || FFMPEG_PROBLEM.test(message)) {
           log(`playback ffmpeg: ${message}`);
         }
       });

@@ -2430,7 +2430,17 @@
       for (const track of (outboundStream || localStream).getAudioTracks()) {
         const producer = await sendTransport.produce({
           track,
-          codecOptions: { opusStereo: false, opusDtx: true },
+          // DTX off deliberately. With it on, Opus stops transmitting entirely
+          // once the noise gate closes, and the server's ffmpeg -> ALSA output
+          // then has nothing to write: the card underruns and replays whatever
+          // is still in its ring buffer, which is the tail of the last words,
+          // looping at the buffer period. Measured on the appliance as the PCM
+          // substream cycling RUNNING -> XRUN the moment speech stopped.
+          //
+          // A browser hides this behind its jitter buffer and comfort noise; a
+          // sound card has no such luxury. Continuous silence frames cost a few
+          // kbit/s on a LAN, which is not a trade worth making.
+          codecOptions: { opusStereo: false, opusDtx: false },
         });
         if (stale()) { try { producer.close(); } catch { /* gone */ } return; }
 
