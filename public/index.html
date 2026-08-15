@@ -178,20 +178,11 @@
       display: flex;
     }
 
-    /* The two headline actions are what someone reaches for mid-service, so
-       they are sized to be hit without looking. */
-    .mic-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
+    /* ---------------------------------------------------- the big controls */
 
-    .mic-actions button {
-      flex: 1 1 150px;
-      padding: 18px 20px;
-      border-radius: 16px;
-      font-size: 1.05rem;
-    }
+    /* These are aimed at, not read. Everything below is in service of being
+       recognisable by colour and position from arm's length, while the person
+       holding the phone is looking at something else entirely. */
 
     #micModule {
       display: flex;
@@ -201,6 +192,142 @@
 
     #micModule[hidden] {
       display: none;
+    }
+
+    .big-btn {
+      position: relative;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      border-radius: 20px;
+      padding: 22px 20px;
+      background: rgba(15, 23, 42, 0.08);
+      color: var(--text);
+      /* No transform on press: these get hit in a hurry, and a button that
+         moves under the thumb reads as a missed tap. */
+      transition: background 0.12s ease, box-shadow 0.12s ease, color 0.12s ease;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      user-select: none;
+    }
+
+    .big-btn:hover:not(:disabled),
+    .big-btn:focus-visible:not(:disabled) {
+      transform: none;
+      box-shadow: none;
+    }
+
+    .big-btn:focus-visible {
+      outline: 3px solid var(--primary);
+      outline-offset: 3px;
+    }
+
+    .big-btn-label {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+    }
+
+    .big-btn-state {
+      font-size: 0.85rem;
+      font-weight: 600;
+      opacity: 0.75;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ---- mute: red means the room cannot hear you, green means it can ---- */
+
+    .mute-btn {
+      min-height: 108px;
+    }
+
+    .mute-btn.is-muted,
+    .mute-btn.is-muted:hover:not(:disabled) {
+      background: #dc2626;
+      color: #fff;
+    }
+
+    .mute-btn.is-live,
+    .mute-btn.is-live:hover:not(:disabled) {
+      background: #16a34a;
+      color: #fff;
+    }
+
+    /* Server-measured: proof the mic is genuinely reaching the room, rather
+       than merely being open on this device. */
+    .mute-btn.is-heard {
+      box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.45);
+    }
+
+    /* ---- push to talk: the one people grab without looking ---------------- */
+
+    .ptt-btn {
+      min-height: 190px;
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .ptt-btn:hover:not(:disabled),
+    .ptt-btn:focus-visible:not(:disabled) {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .ptt-btn.is-talking,
+    .ptt-btn.is-talking:hover:not(:disabled) {
+      background: #16a34a;
+      box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.35);
+    }
+
+    .ptt-btn:disabled {
+      background: rgba(15, 23, 42, 0.1);
+      color: rgba(15, 23, 42, 0.4);
+    }
+
+    /* ---- to / from stage -------------------------------------------------- */
+
+    .stage-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .stage-btn {
+      min-height: 104px;
+    }
+
+    .stage-btn.is-on,
+    .stage-btn.is-on:hover:not(:disabled) {
+      background: #16a34a;
+      color: #fff;
+    }
+
+    .stage-btn.is-pending,
+    .stage-btn.is-pending:hover:not(:disabled) {
+      background: #eab308;
+      color: #422006;
+    }
+
+    .stage-btn.is-error,
+    .stage-btn.is-error:hover:not(:disabled) {
+      background: #dc2626;
+      color: #fff;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .big-btn {
+        background: rgba(226, 232, 240, 0.12);
+      }
+
+      .ptt-btn:disabled {
+        background: rgba(226, 232, 240, 0.08);
+        color: rgba(226, 232, 240, 0.4);
+      }
     }
 
     .panel {
@@ -377,13 +504,6 @@
       flex-wrap: wrap;
       align-items: center;
       gap: 12px;
-    }
-
-    .house-feed-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
     }
 
     .house-feed-help {
@@ -785,12 +905,6 @@
       color: var(--muted);
     }
 
-    button.latched {
-      background: #16a34a;
-      color: white;
-    }
-
-    button.latched:hover:not(:disabled) { background: #15803d; }
   </style>
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="theme-color" content="#4059ff" />
@@ -841,48 +955,29 @@
         <div id="fatalBanner" class="banner hidden"></div>
 
         <!-- ------------------------------------------------------------ home -->
+        <!--
+          Deliberately almost wordless. This is read at a glance, one-handed,
+          by someone who is also doing something else: state is carried by
+          colour and size, not by labels anyone has to stop and read.
+        -->
         <div class="page active" id="page-home" data-page="home">
           <section id="idleCard" class="panel">
-            <div class="panel-header">
-              <h2>Not in a room</h2>
-              <span class="subtle">Nothing is live yet.</span>
-            </div>
-            <p class="subtle" style="margin: 0 0 14px;">
-              Pick a room to open your microphone and hear everyone else.
-            </p>
+            <p style="margin: 0 0 14px; font-weight: 600;">Not in a room.</p>
             <button type="button" class="secondary" data-goto="rooms">Choose a room</button>
           </section>
 
-          <section class="panel mic-panel">
-            <div class="panel-header">
-              <h2>Your microphone</h2>
-              <span class="subtle">Talk to your room.</span>
-            </div>
-            <div id="micSlotHome"></div>
-          </section>
+          <div id="micSlotHome"></div>
 
-          <section id="playbackPanel" class="panel hidden" aria-live="polite">
-            <div class="panel-header">
-              <h2>Talk to the building</h2>
-              <span class="subtle">Your mic &rarr; the server's audio output.</span>
-            </div>
-            <div class="house-feed-body">
-              <span id="playbackStatus" class="status-chip offline">Offline</span>
-              <div class="house-feed-actions">
-                <button id="playbackToggle" class="secondary">Start output</button>
-              </div>
-            </div>
-            <p class="subtle house-feed-help">Only one person can hold the output at a time.</p>
-          </section>
-
-          <section id="feedsPanel" class="panel hidden" aria-live="polite">
-            <div class="panel-header">
-              <h2>Listen to the building</h2>
-              <span class="subtle">Live inputs from the sound desk.</span>
-            </div>
-            <div id="feedList" class="feed-list"></div>
-            <p class="subtle" id="feedHelp">Each input is independent — listen to either, or both.</p>
-          </section>
+          <div id="stageControls" class="stage-grid hidden">
+            <button id="playbackToggle" class="big-btn stage-btn" disabled>
+              <span class="big-btn-label">To stage</span>
+              <span id="playbackStatus" class="big-btn-state">Off</span>
+            </button>
+            <button id="feedToggle" class="big-btn stage-btn" disabled>
+              <span class="big-btn-label">From stage</span>
+              <span id="feedState" class="big-btn-state">Off</span>
+            </button>
+          </div>
         </div>
 
         <!-- ----------------------------------------------------------- rooms -->
@@ -909,7 +1004,13 @@
               <h2>Microphone</h2>
               <span class="subtle">Mute, push to talk, and your noise gate.</span>
             </div>
+            <div class="mic-status">
+              <span id="micStatus" class="status-chip offline">Disconnected</span>
+              <span id="heardChip" class="status-chip offline">Not heard</span>
+            </div>
             <div id="micSlotMic"></div>
+            <span class="ptt-hint">Push to talk opens the mic only while you hold
+              it down, and only while you are muted. Headset buttons work too.</span>
           </section>
 
           <section class="panel mic-panel">
@@ -977,6 +1078,20 @@
 
         <!-- ---------------------------------------------------- server audio -->
         <div class="page" id="page-server" data-page="server">
+          <!--
+            The per-feed detail lives here rather than on the home page: the
+            home page's "From stage" turns the whole lot on and off, and which
+            input is which, and how loud, is a thing you set once at the desk.
+          -->
+          <section id="feedsPanel" class="panel hidden" aria-live="polite">
+            <div class="panel-header">
+              <h2>Feeds from the stage</h2>
+              <span class="subtle">What "From stage" turns on.</span>
+            </div>
+            <div id="feedList" class="feed-list"></div>
+            <p class="subtle" id="feedHelp">Each input is independent — listen to either, or both.</p>
+          </section>
+
           <section id="serverAudioPanel" class="panel hidden" aria-live="polite">
             <div class="panel-header">
               <h2>Server audio interface</h2>
@@ -1012,15 +1127,24 @@
     mean two sets of listeners and two chips to keep in sync with one mic.
   -->
   <div id="micModule" hidden>
-    <div class="mic-status">
-      <span id="micStatus" class="status-chip offline">Disconnected</span>
-      <span id="heardChip" class="status-chip offline">Not heard</span>
-    </div>
-    <div class="mic-actions">
-      <button id="mute" disabled>Mute Mic</button>
-      <button id="pushToTalk" disabled>Push to Talk</button>
-    </div>
-    <span class="ptt-hint">Hold to talk, or tap once to latch it on. Headset buttons work too.</span>
+    <!--
+      The mute button carries its own state in its colour: red means the room
+      cannot hear you, green means it can. The ring around it lights when the
+      server actually measures your voice arriving, which is the only proof
+      that the mic is reaching anyone.
+    -->
+    <button id="mute" class="big-btn mute-btn" disabled>
+      <span class="big-btn-label" id="muteLabel">Muted</span>
+    </button>
+
+    <!--
+      Momentary, not a toggle: it opens the mic while held and closes it the
+      instant it is released. Nothing to remember to turn off. Only reachable
+      while muted — while live it would do nothing.
+    -->
+    <button id="pushToTalk" class="big-btn ptt-btn" disabled>
+      <span class="big-btn-label">Push to talk</span>
+    </button>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -1084,9 +1208,10 @@
     let outboundStream = null;
     let micGate = null;
 
-    let micMuted = false;
+    // Muted is the resting state. Someone who joins live and walks off with an
+    // open mic fills every headset in the building with pocket noise.
+    let micMuted = true;
     let pushToTalkActive = false;
-    let pushToTalkLatched = false;
     let headsetPressActive = false;
 
     let currentRoom = null;
@@ -1764,7 +1889,7 @@
 
           row = { container, dot, name, chip, toggle, volume, audio, meterFill,
                   stopMeter: null, listening: false, wantsAudio: false,
-                  producerId: null };
+                  producerId: null, available: false };
           feedRows.set(feed.id, row);
 
           volume.addEventListener('input', () => { audio.volume = Number(volume.value); });
@@ -1776,6 +1901,7 @@
 
         row.name.textContent = feed.name;
         row.producerId = feed.producerId;
+        row.available = !!feed.available;
         row.toggle.disabled = !feed.available;
 
         if (!feed.available && row.listening) stopFeed(feed.id, { keepIntent: true });
@@ -1791,6 +1917,8 @@
         row.container.remove();
         feedRows.delete(feedId);
       }
+
+      updateFeedControls();
     }
 
     async function startFeed(feedId) {
@@ -1821,10 +1949,12 @@
         row.toggle.textContent = 'Stop';
         row.chip.className = 'status-chip live';
         row.chip.textContent = 'Listening';
+        updateFeedControls();
       } catch (error) {
         console.error('Feed error', error);
         row.chip.className = 'status-chip error';
         row.chip.textContent = 'Failed';
+        updateFeedControls();
       } finally {
         row.toggle.disabled = false;
       }
@@ -1847,22 +1977,31 @@
       row.chip.className = 'status-chip offline';
       row.chip.textContent = 'Not listening';
       row.dot.classList.remove('on');
+      updateFeedControls();
     }
 
     // ---------------------------------------------------------------- playback
 
-    const playbackPanel = el('playbackPanel');
+    const stageControls = el('stageControls');
     const playbackToggle = el('playbackToggle');
     const playbackStatus = el('playbackStatus');
 
+    /** Paints one of the two stage buttons: off / on / pending / error. */
+    function paintStageButton(button, stateEl, state, text) {
+      button.classList.remove('is-on', 'is-pending', 'is-error');
+      if (state !== 'off') button.classList.add(`is-${state}`);
+      stateEl.textContent = text;
+      button.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
+    }
+
     function setPlaybackStatus(state, text) {
-      playbackStatus.className = `status-chip ${state}`;
-      playbackStatus.textContent = text;
+      paintStageButton(playbackToggle, playbackStatus, state, text);
     }
 
     function updatePlaybackControls() {
-      playbackPanel.classList.toggle('hidden', !socket || !isAdmin);
-      playbackToggle.textContent = playbackEnabled ? 'Stop output' : 'Start output';
+      // Both stage buttons are admin-only, and there is nothing to send to the
+      // stage until this device has a microphone open.
+      stageControls.classList.toggle('hidden', !socket || !isAdmin);
       playbackToggle.disabled = playbackPending || !localStream;
     }
 
@@ -1870,20 +2009,69 @@
       if (!socket || !isAdmin || playbackPending) return;
 
       playbackPending = true;
-      setPlaybackStatus('pending', playbackEnabled ? 'Stopping…' : 'Starting…');
+      setPlaybackStatus('pending', playbackEnabled ? 'Stopping' : 'Starting');
       updatePlaybackControls();
 
       socket.emit('setPlayback', { enabled: !playbackEnabled }, (res = {}) => {
         playbackPending = false;
         if (res.error) {
-          setPlaybackStatus('error', res.error);
+          // The reason goes to the status line; the button just turns red,
+          // because the error text is far too long to read on a button.
+          setPlaybackStatus('error', 'Failed');
+          log(`To stage: ${res.error}`);
         } else {
           playbackEnabled = !!res.enabled;
           setPlaybackStatus(playbackEnabled ? 'on' : 'off',
-                            playbackEnabled ? 'Streaming' : 'Offline');
+                            playbackEnabled ? 'On air' : 'Off');
         }
         updatePlaybackControls();
       });
+    });
+
+    // ---- from stage --------------------------------------------------------
+
+    // One button for every feed at once. Which input is which, and how loud,
+    // is per-feed detail that lives on the Server audio page — nobody picks
+    // between "Program" and "Talkback" while something is going wrong.
+
+    const feedToggle = el('feedToggle');
+    const feedState = el('feedState');
+
+    const usableFeeds = () =>
+      [...feedRows.entries()].filter(([, row]) => row.producerId && row.available);
+    const listeningFeeds = () =>
+      [...feedRows.values()].filter((row) => row.listening);
+
+    function updateFeedControls() {
+      const usable = usableFeeds();
+      const listening = listeningFeeds().length;
+      const connecting = [...feedRows.values()].some((row) => row.wantsAudio && !row.listening);
+
+      feedToggle.disabled = !socket || !isAdmin || usable.length === 0;
+
+      if (feedToggle.disabled) {
+        paintStageButton(feedToggle, feedState, 'off', socket ? 'None' : 'Off');
+      } else if (connecting && listening === 0) {
+        paintStageButton(feedToggle, feedState, 'pending', 'Starting');
+      } else if (listening === 0) {
+        paintStageButton(feedToggle, feedState, 'off', 'Off');
+      } else {
+        // Says "1 of 2" when someone has turned one off on the detail page, so
+        // a green button never implies you are hearing more than you are.
+        paintStageButton(feedToggle, feedState, 'on',
+          listening === usable.length ? 'On' : `${listening} of ${usable.length}`);
+      }
+    }
+
+    feedToggle.addEventListener('click', () => {
+      if (feedToggle.disabled) return;
+
+      if (listeningFeeds().length > 0) {
+        for (const [feedId] of feedRows) stopFeed(feedId);
+      } else {
+        for (const [feedId] of usableFeeds()) startFeed(feedId).catch(console.error);
+      }
+      updateFeedControls();
     });
 
     // ------------------------------------------------ server audio interface
@@ -2013,11 +2201,12 @@
     // --------------------------------------------------------------- local mic
 
     const muteBtn = el('mute');
+    const muteLabel = el('muteLabel');
     const pushToTalkBtn = el('pushToTalk');
     const micStatusEl = el('micStatus');
     const heardChip = el('heardChip');
 
-    const talking = () => !micMuted || pushToTalkActive || pushToTalkLatched;
+    const talking = () => !micMuted || pushToTalkActive;
 
     // Mute acts on the gated stream, not the raw mic, so the meter keeps moving
     // while muted — that is when people want to set their gate.
@@ -2028,13 +2217,29 @@
     }
 
     function updateMicStatus() {
+      const live = !!localStream && talking();
+
+      // The home page reads by colour alone: red for "the room cannot hear
+      // you", green for "it can". The word is a fallback, not the signal.
+      muteBtn.classList.toggle('is-muted', !!localStream && !live);
+      muteBtn.classList.toggle('is-live', live);
+      muteLabel.textContent = live ? 'Live' : 'Muted';
+
+      // The "heard" ring is server-measured and so arrives about a second
+      // late. Closing the mic is known here and now, and a green ring left on
+      // a red button for that second is the one moment it must not be wrong.
+      if (!live) muteBtn.classList.remove('is-heard');
+      muteBtn.setAttribute('aria-pressed', micMuted ? 'true' : 'false');
+
+      // Push-to-talk is meaningless while the mic is already open, so it is
+      // only reachable from the muted state.
+      pushToTalkBtn.disabled = !localStream || !micMuted;
+      pushToTalkBtn.classList.toggle('is-talking', pushToTalkActive);
+
       micStatusEl.className = 'status-chip';
       if (!localStream) {
         micStatusEl.classList.add('offline');
         micStatusEl.textContent = 'Disconnected';
-      } else if (pushToTalkLatched) {
-        micStatusEl.classList.add('ptt');
-        micStatusEl.textContent = 'Latched on';
       } else if (micMuted && pushToTalkActive) {
         micStatusEl.classList.add('ptt');
         micStatusEl.textContent = 'Push-to-talk (live)';
@@ -2045,36 +2250,35 @@
         micStatusEl.classList.add('live');
         micStatusEl.textContent = 'Live';
       }
-      pushToTalkBtn.classList.toggle('latched', pushToTalkLatched);
     }
 
     function setMicMuted(muted) {
       micMuted = !!muted;
-      if (micMuted) pushToTalkLatched = false;
+      // Unmuting mid-press would otherwise leave the mic open when the finger
+      // lifts, because release only ever closes what the press opened.
+      if (!micMuted) pushToTalkActive = false;
       applyLocalTrackState();
-      muteBtn.textContent = micMuted ? 'Unmute Mic' : 'Mute Mic';
       updateMicStatus();
     }
 
     function enableMicControls(enabled) {
       muteBtn.disabled = !enabled;
-      pushToTalkBtn.disabled = !enabled;
       if (!enabled) {
         headsetPressActive = false;
         pushToTalkActive = false;
-        pushToTalkLatched = false;
       }
+      updateMicStatus();
     }
 
     function startPushToTalk() {
-      if (!localStream) return;
+      if (!localStream || !micMuted || pushToTalkActive) return;
       pushToTalkActive = true;
       applyLocalTrackState();
       updateMicStatus();
     }
 
     function stopPushToTalk() {
-      if (!localStream) return;
+      if (!pushToTalkActive) return;
       pushToTalkActive = false;
       applyLocalTrackState();
       updateMicStatus();
@@ -2082,46 +2286,28 @@
 
     muteBtn.addEventListener('click', () => { if (localStream) setMicMuted(!micMuted); });
 
-    // Hold to talk, or tap to latch. Holding a button while framing a shot is
-    // impractical one-handed, so a quick tap leaves the mic open until tapped
-    // again; anything longer behaves as classic momentary push-to-talk.
-    const TAP_MS = 250;
-    let pressStartedAt = 0;
-
+    // Momentary, with no latch: down opens the mic, up closes it. A latch is a
+    // mic left open by someone who thought they had closed it, and there is no
+    // way to tell the two apart from the far end.
     pushToTalkBtn.addEventListener('pointerdown', (ev) => {
       if (pushToTalkBtn.disabled) return;
       ev.preventDefault();
-      pushToTalkBtn.setPointerCapture?.(ev.pointerId);
-      pressStartedAt = Date.now();
-
-      if (pushToTalkLatched) {
-        pushToTalkLatched = false;
-        applyLocalTrackState();
-        updateMicStatus();
-        return;
-      }
+      // Capture keeps the release ours even after the thumb slides off, which
+      // on a button this size it will.
+      try { pushToTalkBtn.setPointerCapture?.(ev.pointerId); } catch { /* no capture */ }
       startPushToTalk();
     });
 
     function endPress(ev) {
-      if (!pressStartedAt) return;
-      const wasTap = Date.now() - pressStartedAt < TAP_MS;
-      pressStartedAt = 0;
-      pushToTalkBtn.releasePointerCapture?.(ev?.pointerId);
-
-      if (wasTap && pushToTalkActive) {
-        // Promote the momentary press into a latch.
-        pushToTalkActive = false;
-        pushToTalkLatched = true;
-        applyLocalTrackState();
-        updateMicStatus();
-        return;
-      }
+      try { pushToTalkBtn.releasePointerCapture?.(ev?.pointerId); } catch { /* never held */ }
       stopPushToTalk();
     }
 
     pushToTalkBtn.addEventListener('pointerup', endPress);
     pushToTalkBtn.addEventListener('pointercancel', endPress);
+    // Last resort. If a pointerup is ever lost — an OS gesture, a notification
+    // shade pulled down mid-press — this is what stops a mic staying open.
+    window.addEventListener('blur', () => stopPushToTalk());
 
     const HEADSET_KEYS = new Set(['HeadsetHook', 'MediaPlayPause']);
     const isHeadsetEvent = (ev) =>
@@ -2624,7 +2810,7 @@
       socket.on('playback-state', (state) => {
         playbackEnabled = state.active && state.ownerSocketId === socket.id;
         setPlaybackStatus(playbackEnabled ? 'on' : 'off',
-                          playbackEnabled ? 'Streaming' : 'Offline');
+                          playbackEnabled ? 'On air' : 'Off');
         updatePlaybackControls();
       });
 
@@ -2648,6 +2834,7 @@
         const heard = active.has(socket.id);
         heardChip.className = `status-chip ${heard ? 'live' : 'offline'}`;
         heardChip.textContent = heard ? 'Heard by room' : 'Not heard';
+        muteBtn.classList.toggle('is-heard', heard);
       });
 
     }
@@ -2677,7 +2864,10 @@
         if (stale()) return;
         await startMicChain(localStream);
         if (stale()) return;
-        setMicMuted(false);
+        // Muted on arrival: this is the state the push-to-talk button
+        // works from, and an unattended open mic is the failure that fills
+        // every headset in the building.
+        setMicMuted(true);
       }
 
       enableMicControls(true);
@@ -2769,6 +2959,7 @@
       micStatusEl.textContent = 'Reconnecting…';
       heardChip.className = 'status-chip offline';
       heardChip.textContent = 'Not heard';
+      muteBtn.classList.remove('is-heard');
       el('localName').textContent = `${displayName} · reconnecting`;
       log('Connection lost — reconnecting…');
     }
@@ -2838,21 +3029,21 @@
       audioElements.clear();
       remoteList.innerHTML = '';
 
-      micMuted = false;
+      micMuted = true;
       pushToTalkActive = false;
-      pushToTalkLatched = false;
 
       setConnectedUi(false);
       feedsPanel.classList.add('hidden');
-      playbackPanel.classList.add('hidden');
+      stageControls.classList.add('hidden');
       updateDeviceSelectorsVisibility();
 
       enableMicControls(false);
-      muteBtn.textContent = 'Mute Mic';
       updateMicStatus();
-      setPlaybackStatus('off', 'Offline');
+      setPlaybackStatus('off', 'Off');
+      updateFeedControls();
       heardChip.className = 'status-chip offline';
       heardChip.textContent = 'Not heard';
+      muteBtn.classList.remove('is-heard');
 
       el('leave').disabled = true;
       el('localName').textContent = 'Not connected';
