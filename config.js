@@ -128,7 +128,9 @@ if (HTTPS_ENABLED) {
 }
 
 /**
- * BYPASS_AUTH disables password checks entirely. It exists for offline local
+ * BYPASS_AUTH drops the account roster entirely: any username is accepted,
+ * without a database. Sign-in is already passwordless, so what this adds is
+ * letting someone who is on no roster in. It exists for offline local
  * development and must never be reachable in a deployed install, so we refuse
  * to boot rather than silently running an open intercom.
  */
@@ -136,8 +138,9 @@ const BYPASS_AUTH = bool("BYPASS_AUTH", false);
 if (BYPASS_AUTH && IS_PRODUCTION) {
   fatalErrors.push(
     "BYPASS_AUTH=true is not permitted when NODE_ENV=production. " +
-      "It disables all password verification. Set NODE_ENV=development if you " +
-      "genuinely intend to run without authentication on an isolated machine."
+      "It accepts any username, including one no account exists for. Set " +
+      "NODE_ENV=development if you genuinely intend to run without an account " +
+      "roster on an isolated machine."
   );
 }
 
@@ -217,7 +220,7 @@ const config = {
     bypass: BYPASS_AUTH,
     sessionSecret: SESSION_SECRET || "insecure-development-secret",
     // 30 days. Volunteers rotate and a session that expires between Saturday
-    // setup and Sunday morning means someone hunting for a password during a
+    // setup and Sunday morning means someone hunting for a login during a
     // service. The cookie is httpOnly and the device is on the church LAN.
     sessionMaxAgeMs: int("SESSION_MAX_AGE_HOURS", 24 * 30) * 60 * 60 * 1000,
     loginRateLimit: {
@@ -225,8 +228,8 @@ const config = {
       maxAttempts: int("LOGIN_RATE_MAX_ATTEMPTS", 10),
     },
     // Seeded on first boot only; ignored once an admin account exists.
+    // BOOTSTRAP_ADMIN_PASSWORD is gone: sign-in is passwordless.
     bootstrapAdminUsername: str("BOOTSTRAP_ADMIN_USERNAME", "admin"),
-    bootstrapAdminPassword: str("BOOTSTRAP_ADMIN_PASSWORD"),
     bootstrapAdminEmail: str("BOOTSTRAP_ADMIN_EMAIL", "admin@church.local"),
   },
 

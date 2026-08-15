@@ -15,6 +15,7 @@ import { AudioCapture, AudioPlayback } from "./audio.js";
 import {
   registerUser,
   loginUser,
+  NotAnAdminError,
   getUserById,
   requireAuth,
   requireAdmin,
@@ -139,10 +140,10 @@ async function start() {
   const loginLimiter = createRateLimiter(config.auth.loginRateLimit);
 
   app.post("/api/login", loginLimiter, async (req, res) => {
-    const { usernameOrEmail, password } = req.body || {};
+    const { usernameOrEmail, asAdmin } = req.body || {};
 
     try {
-      const user = await loginUser(usernameOrEmail, password);
+      const user = await loginUser(usernameOrEmail, !!asAdmin);
 
       // Rotate the session id on privilege change to prevent session fixation.
       req.session.regenerate((regenerateError) => {
@@ -174,30 +175,36 @@ async function start() {
       });
     } catch (error) {
       console.warn(`Failed login for "${usernameOrEmail}": ${error.message}`);
-      res.status(401).json({ error: "Invalid username or password" });
+
+      // Told apart deliberately: "you are not an admin" is a different problem
+      // from "that name is not on the roster", and the fix for the first is to
+      // untick a box rather than to go and find your production lead.
+      if (error instanceof NotAnAdminError) {
+        return res.status(403).json({
+          error: "That account isn't an administrator. Untick \"Sign in as " +
+            "administrator\" to continue as a normal user.",
+        });
+      }
+
+      res.status(401).json({
+        error: "That username isn't recognised. Ask your production lead for one.",
+      });
     }
   });
 
   // Self-registration is off by default: an intercom is not a public service,
   // and an open endpoint lets anyone on the LAN grant themselves a seat.
-  app.post("/api/register", loginLimiter, requireAuth, async (req, res) => {
-    if (!req.session.isAdmin) {
-      return res.status(403).json({ error: "Only an administrator can add users" });
-    }
-
-    const { username, email, password, displayName, isAdmin } = req.body || {};
-    if (!username || !email || !password || !displayName) {
+  // requireAdmin rather than a bare session check: creating accounts — and
+  // creating admin accounts in particular — deserves the same database
+  // re-confirmation as repointing the building's sound card.
+  app.post("/api/register", loginLimiter, requireAuth, requireAdmin, async (req, res) => {
+    const { username, email, displayName, isAdmin } = req.body || {};
+    if (!username || !email || !displayName) {
       return res.status(400).json({ error: "All fields are required" });
     }
 
     try {
-      const user = await registerUser(
-        username,
-        email,
-        password,
-        displayName,
-        !!isAdmin
-      );
+      const user = await registerUser(username, email, displayName, !!isAdmin);
       res.json({
         success: true,
         user: {
@@ -284,8 +291,8 @@ async function start() {
   // ------------------------------------------------- server audio interfaces
 
   // Admin-only: this chooses which sound card the whole building hears and is
-  // heard through. requireAdmin re-derives the rule rather than trusting a
-  // long-lived session cookie.
+  // heard through. requireAdmin re-reads is_admin from the database rather than
+  // trusting the flag a long-lived session cookie has been carrying.
   app.get("/api/audio/devices", requireAuth, requireAdmin, async (req, res) => {
     try {
       const devices = await describeAudioDevices({

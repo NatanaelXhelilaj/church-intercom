@@ -119,8 +119,7 @@
     }
 
     input[type="text"],
-    input[type="email"],
-    input[type="password"] {
+    input[type="email"] {
       width: 100%;
       padding: 12px 14px;
       border-radius: 12px;
@@ -199,6 +198,32 @@
       margin-top: 4px;
     }
 
+    .checkbox-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .checkbox-row input {
+      width: 18px;
+      height: 18px;
+      margin: 1px 0 0;
+      flex-shrink: 0;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+
+    .checkbox-hint {
+      display: block;
+      margin-top: 2px;
+      font-size: 0.82rem;
+      font-weight: 400;
+      color: var(--muted);
+    }
+
     @media (prefers-color-scheme: dark) {
       :root {
         --surface: rgba(15, 23, 42, 0.8);
@@ -237,6 +262,7 @@
             id="loginUsername"
             name="usernameOrEmail"
             required
+            autofocus
             autocomplete="username"
             autocapitalize="none"
             autocorrect="off"
@@ -246,34 +272,36 @@
         </div>
 
         <div class="field-group">
-          <label class="field-label" for="loginPassword">Password</label>
-          <input
-            type="password"
-            id="loginPassword"
-            name="password"
-            required
-            autocomplete="current-password"
-            placeholder="Enter your password"
-          />
+          <label class="checkbox-row" for="loginAsAdmin">
+            <input type="checkbox" id="loginAsAdmin" name="asAdmin" />
+            <span>
+              Sign in as administrator
+              <span class="checkbox-hint">
+                Adds the kick, talk-to-the-building and sound-card controls.
+              </span>
+            </span>
+          </label>
         </div>
 
         <button type="submit" id="loginBtn">Login</button>
       </form>
 
       <p class="help-text" style="margin-top: 18px; text-align: center;">
-        Accounts are created by an administrator. Ask your production lead if
-        you need one.
+        There's no password — your username is enough. Use the name your
+        production lead gave you, so everyone knows who is speaking.
       </p>
     </div>
   </div>
 
   <script type="module">
     // Self-registration was removed: an intercom is not a public service, so
-    // accounts are created by an administrator. This page only signs in.
+    // accounts are created by an administrator. This page only signs in, and
+    // sign-in is passwordless — see PASSWORDLESS_SENTINEL in auth.js.
     const loginForm = document.getElementById('loginForm');
     const loginError = document.getElementById('loginError');
     const loginBtn = document.getElementById('loginBtn');
-    const password = document.getElementById('loginPassword');
+    const username = document.getElementById('loginUsername');
+    const asAdmin = document.getElementById('loginAsAdmin');
 
     function showError(message) {
       loginError.textContent = message;
@@ -284,7 +312,13 @@
       event.preventDefault();
       loginError.classList.remove('visible');
 
-      const data = Object.fromEntries(new FormData(loginForm).entries());
+      // Built by hand rather than from FormData: an unchecked box is simply
+      // absent from a form submission, and the server reads asAdmin as a
+      // boolean rather than as "on" or missing.
+      const data = {
+        usernameOrEmail: username.value.trim(),
+        asAdmin: asAdmin.checked,
+      };
 
       loginBtn.disabled = true;
       loginBtn.textContent = 'Signing in…';
@@ -306,10 +340,10 @@
         window.location.href = '/';
       } catch (error) {
         showError(error.message);
-        // Clear only the password so a mistyped one does not mean retyping the
-        // username on a phone keyboard.
-        password.value = '';
-        password.focus();
+        // Left in place rather than cleared: the username is the only thing on
+        // this form, and a typo is easier to fix than to retype on a phone.
+        username.focus();
+        username.select();
       } finally {
         loginBtn.disabled = false;
         loginBtn.textContent = 'Login';

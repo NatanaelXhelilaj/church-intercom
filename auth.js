@@ -1,36 +1,51 @@
-import bcrypt from "bcrypt";
 import pool from "./db.js";
 import config from "./config.js";
 
-const SALT_ROUNDS = 10;
-
 /**
- * A bcrypt hash of a value nobody knows, compared against when a username does
- * not exist. Without this, a missing user returns noticeably faster than a
- * wrong password and the login endpoint becomes a username oracle.
+ * Sign-in is passwordless: the username *is* the credential.
+ *
+ * This is a deliberate trade for a device that lives on one church LAN and is
+ * used by volunteers who are already in the building. It also means the admin
+ * surface — kicking people from a room, taking over the building's speakers,
+ * repointing the server's sound card — is reachable by anyone on that LAN who
+ * types an admin username. Treat network access to this appliance as
+ * equivalent to admin access, and keep it off any untrusted network.
+ *
+ * password_hash is still NOT NULL in the schema, so accounts are written with
+ * this sentinel. It is not a bcrypt hash and never will be: nothing compares
+ * against it, and if a comparison path ever came back it could not match.
  */
-const DUMMY_HASH = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+const PASSWORDLESS_SENTINEL = "!passwordless";
 const USERNAME_REGEX = /^[a-zA-Z0-9_-]{3,50}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** Admin usernames must say so: "admin", "admin2", "sound-admin" all pass. */
-const ADMIN_USERNAME_REGEX = /admin/i;
 
 /**
  * The single place that decides whether someone gets the admin surface.
  *
- * Two conditions, both required: the database flag, and "admin" in the
- * username. The username rule can only ever take privilege away — it is a
- * filter over is_admin, never a grant — so an account cannot become an admin
- * merely by being named one.
+ * Two separate things, both required:
+ *
+ *   accountIsAdmin  — the `users.is_admin` column. The *capability*: whether
+ *                     this account is allowed to administer anything at all.
+ *   requestedAdmin  — the "Sign in as administrator" checkbox. The *intent*:
+ *                     whether this particular session asked to use it.
+ *
+ * Intent can only ever take privilege away. Ticking the box on an account
+ * without the flag grants nothing, so the checkbox is not a way to self-
+ * promote; it only lets an admin choose to spend a session as an ordinary
+ * user, which is what you want when a volunteer borrows the tablet.
+ *
+ * The database flag used to be paired with an "admin" substring in the
+ * username instead. That rule is gone: it forced administrators into a naming
+ * convention, and once sign-in went passwordless it meant the username alone
+ * both identified and elevated you.
  *
  * Every path that reports isAdmin goes through here. Admin rights gate real
  * capability (kicking people out of a room, taking over the building's
  * speakers, repointing the server's sound card), so a client-side check is
  * decoration; this is the check that counts.
  */
-export function resolveAdmin(username, isAdminFlag) {
-  return !!isAdminFlag && ADMIN_USERNAME_REGEX.test(String(username || ""));
+export function resolveAdmin(accountIsAdmin, requestedAdmin) {
+  return !!accountIsAdmin && !!requestedAdmin;
 }
 
 // Validate username format
@@ -58,20 +73,6 @@ function validateEmail(email) {
   return { valid: true };
 }
 
-// Validate password strength
-function validatePassword(password) {
-  if (!password || typeof password !== "string") {
-    return { valid: false, error: "Password is required" };
-  }
-  if (password.length < 8) {
-    return { valid: false, error: "Password must be at least 8 characters" };
-  }
-  if (password.length > 128) {
-    return { valid: false, error: "Password must be less than 128 characters" };
-  }
-  return { valid: true };
-}
-
 // Validate display name
 function validateDisplayName(displayName) {
   if (!displayName || typeof displayName !== "string") {
@@ -85,7 +86,7 @@ function validateDisplayName(displayName) {
 }
 
 // Register a new user
-export async function registerUser(username, email, password, displayName, isAdmin = false) {
+export async function registerUser(username, email, displayName, isAdmin = false) {
   const usernameValidation = validateUsername(username);
   if (!usernameValidation.valid) {
     throw new Error(usernameValidation.error);
@@ -96,28 +97,12 @@ export async function registerUser(username, email, password, displayName, isAdm
     throw new Error(emailValidation.error);
   }
 
-  const passwordValidation = validatePassword(password);
-  if (!passwordValidation.valid) {
-    throw new Error(passwordValidation.error);
-  }
-
   const displayNameValidation = validateDisplayName(displayName);
   if (!displayNameValidation.valid) {
     throw new Error(displayNameValidation.error);
   }
 
-  // Refuse the combination outright rather than storing an is_admin flag that
-  // resolveAdmin() will silently ignore at every login. A half-privileged
-  // account is far more confusing to debug than a rejected form.
-  if (isAdmin && !ADMIN_USERNAME_REGEX.test(username)) {
-    throw new Error(
-      'An administrator\'s username must contain "admin" (for example "admin" or "sound-admin")'
-    );
-  }
-
   const sanitizedDisplayName = displayNameValidation.sanitized;
-
-  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
   const insertQuery = `
     INSERT INTO users (username, email, password_hash, display_name, is_admin, is_active)
@@ -129,7 +114,7 @@ export async function registerUser(username, email, password, displayName, isAdm
     const result = await pool.query(insertQuery, [
       username.toLowerCase(),
       email.toLowerCase(),
-      passwordHash,
+      PASSWORDLESS_SENTINEL,
       sanitizedDisplayName,
       isAdmin,
     ]);
@@ -146,32 +131,59 @@ export async function registerUser(username, email, password, displayName, isAdm
   }
 }
 
-// Login user
-export async function loginUser(usernameOrEmail, password) {
+/** Thrown when a non-admin account ticks "Sign in as administrator". */
+export class NotAnAdminError extends Error {
+  constructor() {
+    super("This account is not an administrator");
+    this.name = "NotAnAdminError";
+  }
+}
+
+
+/**
+ * Signs someone in from their username alone.
+ *
+ * The account must still exist and be active — this is "pick who you are from
+ * the roster", not "type anything". Deactivating a user in the database is
+ * therefore the only way to revoke access, since there is no password to
+ * change. See PASSWORDLESS_SENTINEL for what this trade costs.
+ *
+ * The timing-safe dummy comparison the password path used is gone with it.
+ * Nothing is left to hide: when the username is the credential, confirming
+ * that an account exists is confirming the credential, and no amount of
+ * constant-time work changes that.
+ *
+ * `requestedAdmin` is the checkbox on the sign-in form. Asking for admin
+ * without the database flag is refused outright rather than quietly downgraded
+ * — someone who ticks that box is about to go looking for controls, and
+ * silently handing them an ordinary session sends them hunting through the UI
+ * for buttons that were never going to appear.
+ */
+export async function loginUser(usernameOrEmail, requestedAdmin = false) {
   if (!usernameOrEmail || typeof usernameOrEmail !== "string") {
-    throw new Error("Invalid credentials");
+    throw new Error("Username is required");
   }
 
-  // Development-only escape hatch. config.js refuses to boot with this enabled
-  // under NODE_ENV=production, so it cannot reach a deployed install.
+  // Development-only escape hatch, and how the appliance actually runs: it
+  // needs no database at all, so it accepts any username rather than checking
+  // a roster it cannot read, and — having no is_admin column to consult —
+  // treats every account as admin-capable. On such an install the checkbox is
+  // the whole of the admin decision. That is deliberate: the box sits on a
+  // church LAN with no route in from outside.
   if (config.auth.bypass) {
-    console.warn("BYPASS_AUTH is enabled - accepting login without verification");
+    console.warn("BYPASS_AUTH is enabled - accepting any username");
     return {
       id: 1,
       username: usernameOrEmail.toLowerCase(),
       email: `${usernameOrEmail.toLowerCase()}@example.com`,
       displayName: usernameOrEmail,
-      isAdmin: resolveAdmin(usernameOrEmail, true),
+      isAdmin: resolveAdmin(true, requestedAdmin),
       isActive: true,
     };
   }
 
-  if (!password || typeof password !== "string") {
-    throw new Error("Invalid credentials");
-  }
-
   const query = `
-    SELECT id, username, email, password_hash, display_name, is_admin, is_active
+    SELECT id, username, email, display_name, is_admin, is_active
     FROM users
     WHERE (username = $1 OR email = $1) AND is_active = TRUE
   `;
@@ -179,15 +191,12 @@ export async function loginUser(usernameOrEmail, password) {
   const result = await pool.query(query, [usernameOrEmail.toLowerCase()]);
   const user = result.rows[0];
 
-  // Always run a comparison, even for an unknown username, so response timing
-  // does not reveal which accounts exist.
-  const passwordMatch = await bcrypt.compare(
-    password,
-    user ? user.password_hash : DUMMY_HASH
-  );
+  if (!user) {
+    throw new Error("Unknown username");
+  }
 
-  if (!user || !passwordMatch) {
-    throw new Error("Invalid credentials");
+  if (requestedAdmin && !user.is_admin) {
+    throw new NotAnAdminError();
   }
 
   // Best-effort: a failed timestamp write must not block a valid login.
@@ -200,7 +209,7 @@ export async function loginUser(usernameOrEmail, password) {
     username: user.username,
     email: user.email,
     displayName: user.display_name,
-    isAdmin: resolveAdmin(user.username, user.is_admin),
+    isAdmin: resolveAdmin(user.is_admin, requestedAdmin),
     isActive: user.is_active,
   };
 }
@@ -211,6 +220,10 @@ export async function loginUser(usernameOrEmail, password) {
  * Replaces the previous approach of seeding a fixed `admin` / `admin123`
  * account from database.sql with a published bcrypt hash. Runs on every boot
  * but does nothing once any admin exists, so it is safe to leave enabled.
+ *
+ * Since sign-in is passwordless this needs no secret to run, which means a
+ * fresh install always ends up with a reachable admin account rather than
+ * warning and leaving nobody able to administer the box.
  */
 export async function bootstrapAdminUser() {
   if (config.auth.bypass) return;
@@ -220,33 +233,13 @@ export async function bootstrapAdminUser() {
   );
   if (existing.rows.length > 0) return;
 
-  const { bootstrapAdminUsername, bootstrapAdminPassword, bootstrapAdminEmail } =
-    config.auth;
-
-  if (!bootstrapAdminPassword) {
-    console.warn(
-      "\nNo administrator account exists and BOOTSTRAP_ADMIN_PASSWORD is unset.\n" +
-        "Set it in .env and restart to create the first admin account.\n"
-    );
-    return;
-  }
-
-  // Caught here rather than left to blow up the boot: a misnamed
-  // BOOTSTRAP_ADMIN_USERNAME is a config typo, not a reason to refuse to run
-  // an intercom that otherwise works for everyone else.
-  if (!ADMIN_USERNAME_REGEX.test(bootstrapAdminUsername)) {
-    console.warn(
-      `\nBOOTSTRAP_ADMIN_USERNAME "${bootstrapAdminUsername}" does not contain "admin",\n` +
-        "so it cannot hold administrator rights. No admin account was created.\n" +
-        'Rename it (for example "admin") and restart.\n'
-    );
-    return;
-  }
+  // BOOTSTRAP_ADMIN_USERNAME may now be anything a username may be: admin
+  // rights come from the is_admin column and the checkbox, not from the name.
+  const { bootstrapAdminUsername, bootstrapAdminEmail } = config.auth;
 
   await registerUser(
     bootstrapAdminUsername,
     bootstrapAdminEmail,
-    bootstrapAdminPassword,
     bootstrapAdminUsername,
     true
   );
@@ -263,7 +256,7 @@ export async function getUserById(userId, session = null) {
       username: session.username || 'user',
       email: `${session.username || 'user'}@example.com`,
       displayName: session.displayName || session.username || 'User',
-      isAdmin: resolveAdmin(session.username, session.isAdmin),
+      isAdmin: resolveAdmin(true, session.isAdmin),
       isActive: true,
       createdAt: new Date(),
       lastLogin: new Date(),
@@ -289,7 +282,11 @@ export async function getUserById(userId, session = null) {
       username: user.username,
       email: user.email,
       displayName: user.display_name,
-      isAdmin: resolveAdmin(user.username, user.is_admin),
+      // The capability is re-read from the database on every call, so removing
+      // someone's is_admin flag takes effect on their next request rather than
+      // whenever their 30-day session happens to expire. The intent comes from
+      // the session, which is where the checkbox recorded it at sign-in.
+      isAdmin: resolveAdmin(user.is_admin, session?.isAdmin),
       isActive: user.is_active,
       createdAt: user.created_at,
       lastLogin: user.last_login,
@@ -309,17 +306,30 @@ export function requireAuth(req, res, next) {
 }
 
 // Admin authentication middleware
-export function requireAdmin(req, res, next) {
+//
+// Confirms the account still holds is_admin rather than trusting the flag the
+// session has been carrying since login. Sessions live for 30 days; without
+// this, revoking someone's admin rights would not bite until theirs expired.
+export async function requireAdmin(req, res, next) {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ error: "Authentication required" });
   }
-  // Re-derived rather than trusting session.isAdmin on its own: sessions live
-  // for 30 days, so one issued before the username rule existed would still be
-  // carrying an isAdmin flag that the rule would now refuse.
-  if (!resolveAdmin(req.session.username, req.session.isAdmin)) {
+
+  // Cheap rejection first: no admin session, no database round trip.
+  if (!req.session.isAdmin) {
     return res.status(403).json({ error: "Admin privileges required" });
   }
-  next();
+
+  try {
+    const user = await getUserById(req.session.userId, req.session);
+    if (!user?.isAdmin) {
+      return res.status(403).json({ error: "Admin privileges required" });
+    }
+    next();
+  } catch (error) {
+    console.error("Admin check failed:", error.message);
+    res.status(500).json({ error: "Could not verify privileges" });
+  }
 }
 
 // Socket.IO authentication middleware
@@ -341,9 +351,10 @@ export async function authenticateSocket(socket, next) {
     socket.data.userId = user.id;
     socket.data.username = user.username;
     socket.data.displayName = user.displayName;
-    // getUserById already applied the rule; re-stating it keeps the socket
-    // surface (kick, playback, device selection) safe if that ever changes.
-    socket.data.isAdmin = resolveAdmin(user.username, user.isAdmin);
+    // Already the resolved capability-and-intent answer: getUserById combined
+    // the account's is_admin with the session's checkbox. This is what guards
+    // the socket surface — kick, playback, device selection.
+    socket.data.isAdmin = user.isAdmin;
 
     next();
   } catch (error) {

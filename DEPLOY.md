@@ -137,7 +137,6 @@ Fill in the three required values:
 ```bash
 echo "DB_PASSWORD=$(openssl rand -base64 24)"
 echo "SESSION_SECRET=$(openssl rand -hex 32)"
-# and choose BOOTSTRAP_ADMIN_PASSWORD yourself
 ```
 
 Set `AUDIO_CAPTURE_DEVICE` from §3 and name the two inputs
@@ -291,7 +290,8 @@ docker compose start app
 
 Everything except user accounts is in-memory, so a total database loss costs you
 the account list and nothing else. If it ever comes to that: `docker compose
-down -v`, set `BOOTSTRAP_ADMIN_PASSWORD`, start again, re-add people.
+down -v`, start again (the first admin is recreated automatically), re-add
+people.
 
 **Moving the database to a real disk.** If you add an SSD, replace the
 `postgres_data` volume in `docker-compose.yml` with a bind mount:
@@ -305,20 +305,47 @@ volumes:
 
 ## 10. Managing people
 
-There is no self-registration; an admin creates accounts. The first admin comes
-from `BOOTSTRAP_ADMIN_PASSWORD` on first boot only and is ignored once any admin
-exists.
+There is no self-registration; an admin creates accounts. The first admin is
+created on first boot from `BOOTSTRAP_ADMIN_USERNAME` (default `admin`) and is
+ignored once any admin exists.
+
+**On the appliance there is no authentication and no account list.** It runs
+`BYPASS_AUTH=true`, which accepts any username and needs no database. Ticking
+"Sign in as administrator" on the sign-in page grants admin to whoever ticks
+it: kicking people from rooms, talk-to-the-building, and the sound-card
+controls.
+
+That is deliberate — volunteers need to be on air in seconds, and the box has
+no route in from outside. **The network is the only control, so keep it that
+way:** church LAN only, never guest Wi-Fi, never port-forwarded, never exposed
+to the internet.
+
+With a database wired up instead, an admin creates accounts, sign-in is
+passwordless against that roster, and admin needs both `is_admin` on the
+account and the checkbox. Revoke with `UPDATE users SET is_active = FALSE WHERE
+username = '…'`. The username plays no part — an administrator can be called
+anything.
+
+Grant or revoke the capability directly:
+
+```bash
+docker compose exec db psql -U intercom -d church_intercom \
+  -c "UPDATE users SET is_admin = TRUE WHERE username = 'sound-lead';"
+```
+
+`is_admin` is re-read on every admin request, so a revocation takes effect on
+that person's next action rather than when their session expires.
 
 ```bash
 curl -sk -X POST https://localhost:3443/api/login \
   -H 'Content-Type: application/json' \
-  -d '{"usernameOrEmail":"admin","password":"YOUR_ADMIN_PASSWORD"}' \
+  -d '{"usernameOrEmail":"admin","asAdmin":true}' \
   -c /tmp/c.txt
 
 curl -sk -X POST https://localhost:3443/api/register \
   -H 'Content-Type: application/json' -b /tmp/c.txt \
   -d '{"username":"camera1","email":"camera1@church.local",
-       "password":"a-good-password","displayName":"Camera 1","isAdmin":false}'
+       "displayName":"Camera 1","isAdmin":false}'
 ```
 
 Admins can kick people from a room and use "Talk to the Building".

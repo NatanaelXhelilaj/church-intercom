@@ -29,36 +29,178 @@
       min-height: 100vh;
       background: linear-gradient(160deg, #f3f4ff 0%, #eef2ff 35%, #f8fafc 100%);
       color: var(--text);
-      display: flex;
-      justify-content: center;
-      padding: 32px 16px 48px;
     }
 
-    body.modal-open {
+    body.nav-open {
       overflow: hidden;
     }
 
     .app-shell {
-      width: min(960px, 100%);
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* ------------------------------------------------------------ side menu */
+
+    .sidebar {
+      width: 244px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      padding: 24px 14px;
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      border-right: 1px solid var(--border);
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 0 10px;
+    }
+
+    .brand strong {
+      font-size: 1.05rem;
+      letter-spacing: -0.01em;
+    }
+
+    .sidebar nav {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav-item {
+      width: 100%;
+      text-align: left;
+      border-radius: 12px;
+      padding: 11px 14px;
+      font-size: 0.95rem;
+      background: transparent;
+      color: var(--text);
+    }
+
+    .nav-item:hover:not(:disabled),
+    .nav-item:focus-visible:not(:disabled) {
+      background: rgba(15, 23, 42, 0.08);
+      color: var(--text);
+      transform: none;
+      box-shadow: none;
+    }
+
+    .nav-item.active,
+    .nav-item.active:hover:not(:disabled),
+    .nav-item.active:focus-visible:not(:disabled) {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 0 10px;
+    }
+
+    .signed-in {
+      font-weight: 600;
+      font-size: 0.9rem;
+      word-break: break-word;
+    }
+
+    .scrim {
+      display: none;
+    }
+
+    /* ---------------------------------------------------------- main column */
+
+    .app-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px clamp(16px, 3vw, 32px);
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .topbar h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      letter-spacing: -0.01em;
+    }
+
+    .topbar-meta {
+      margin-left: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      text-align: right;
+      min-width: 0;
+    }
+
+    #menuToggle {
+      display: none;
+      padding: 8px 12px;
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+
+    .content {
+      width: min(880px, 100%);
+      padding: 24px clamp(16px, 3vw, 32px) 56px;
       display: flex;
       flex-direction: column;
       gap: 20px;
     }
 
-    .app-header {
-      text-align: center;
+    .page {
+      display: none;
+      flex-direction: column;
+      gap: 20px;
     }
 
-    .app-header h1 {
-      margin: 0 0 6px;
-      font-size: clamp(1.5rem, 3vw, 2.25rem);
-      letter-spacing: -0.02em;
+    .page.active {
+      display: flex;
     }
 
-    .app-header p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 0.95rem;
+    /* The two headline actions are what someone reaches for mid-service, so
+       they are sized to be hit without looking. */
+    .mic-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .mic-actions button {
+      flex: 1 1 150px;
+      padding: 18px 20px;
+      border-radius: 16px;
+      font-size: 1.05rem;
+    }
+
+    #micModule {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    #micModule[hidden] {
+      display: none;
     }
 
     .panel {
@@ -100,13 +242,6 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
-    }
-
-    .room-picker {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      align-items: flex-start;
     }
 
     .field-label {
@@ -218,7 +353,6 @@
       height: 18px;
     }
 
-    .local-controls,
     .peer-card .actions {
       display: flex;
       flex-wrap: wrap;
@@ -392,50 +526,41 @@
       margin: 0;
     }
 
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      background: rgba(15, 23, 42, 0.45);
-      backdrop-filter: blur(6px);
-      z-index: 1000;
-    }
+    @media (max-width: 900px) {
+      .sidebar {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 60;
+        transform: translateX(-100%);
+        transition: transform 0.22s ease;
+        background: var(--surface-strong);
+        backdrop-filter: blur(18px);
+        box-shadow: 0 0 40px rgba(15, 23, 42, 0.25);
+      }
 
-    .modal-backdrop.active {
-      display: flex;
-    }
+      body.nav-open .sidebar {
+        transform: none;
+      }
 
-    .modal-panel {
-      width: min(520px, 100%);
-      border-radius: 18px;
-      overflow: hidden;
-    }
+      body.nav-open .scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        background: rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(4px);
+      }
 
-    .modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-
-    .modal-header h2 {
-      margin: 0;
-      font-size: 1.1rem;
-    }
-
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 16px;
+      #menuToggle {
+        display: inline-flex;
+      }
     }
 
     @media (max-width: 720px) {
-      body {
-        padding: 24px 12px 36px;
+      .content {
+        padding: 20px 12px 40px;
       }
 
       .session-controls {
@@ -492,6 +617,11 @@
       }
 
       .status-chip {
+        background: rgba(226, 232, 240, 0.12);
+      }
+
+      .nav-item:hover:not(:disabled),
+      .nav-item:focus-visible:not(:disabled) {
         background: rgba(226, 232, 240, 0.12);
       }
     }
@@ -673,148 +803,224 @@
 </head>
 <body>
   <div class="app-shell">
-    <header class="app-header">
-      <h1>Church Intercom</h1>
-      <p>Join an audio room to coordinate from any device.</p>
-    </header>
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <strong>Church Intercom</strong>
+        <span class="subtle">Audio rooms</span>
+      </div>
 
-    <div id="fatalBanner" class="banner hidden"></div>
+      <nav aria-label="Sections">
+        <button type="button" class="nav-item active" data-page="home">Home</button>
+        <button type="button" class="nav-item" data-page="rooms">Room</button>
+        <button type="button" class="nav-item" data-page="mic">Microphone &amp; gate</button>
+        <button type="button" class="nav-item" data-page="participants">Participants</button>
+        <button type="button" class="nav-item admin-only hidden" data-page="server">Server audio</button>
+      </nav>
 
-    <section class="panel join-panel">
-      <div class="panel-header">
-        <h2>Join a room</h2>
-        <span class="subtle">Pick a room and hop in.</span>
-      </div>
-      <div class="field-group">
-        <label class="field-label" for="displayName">Signed in as</label>
-        <input type="text" id="displayName" readonly
-               style="background: rgba(15, 23, 42, 0.05); cursor: default;" />
-      </div>
-      <div class="field-group">
-        <span class="field-label">Room</span>
-        <div class="room-picker">
-          <button id="openRoomModal" type="button" class="secondary"
-                  aria-haspopup="dialog" aria-controls="roomModal">Pick a room</button>
-          <span id="selectedRoomLabel" class="subtle">No room selected yet</span>
-        </div>
-      </div>
-      <div class="session-controls">
-        <button id="leave" class="secondary" disabled>Leave room</button>
+      <div class="sidebar-footer">
+        <span class="subtle">Signed in as</span>
+        <span class="signed-in" id="displayName"></span>
         <button id="logout" class="secondary">Logout</button>
-        <span id="status" class="status" role="status" aria-live="polite"></span>
       </div>
-    </section>
+    </aside>
 
-    <section id="locals" class="panel mic-panel">
-      <div class="panel-header">
-        <h2>Your Microphone</h2>
-        <span id="localName" class="subtle">Not connected</span>
-      </div>
-      <div class="mic-meter-row">
-        <span id="micStatus" class="status-chip offline">Disconnected</span>
-        <div id="micMeter" class="meter gate-meter" role="slider" tabindex="0"
-             aria-label="Noise gate threshold" aria-valuemin="-70" aria-valuemax="0"
-             aria-valuenow="-45" aria-valuetext="-45 decibels">
-          <div id="micMeterFill" class="meter-fill"></div>
-          <div id="gateHandle" class="gate-handle"></div>
+    <div id="scrim" class="scrim"></div>
+
+    <div class="app-main">
+      <header class="topbar">
+        <button id="menuToggle" type="button" class="secondary" aria-label="Open menu"
+                aria-controls="sidebar" aria-expanded="false">&#9776;</button>
+        <h1 id="pageTitle">Home</h1>
+        <div class="topbar-meta">
+          <span id="localName" class="subtle">Not connected</span>
+          <span id="status" class="subtle" role="status" aria-live="polite"></span>
         </div>
-        <span id="heardChip" class="status-chip offline">Not heard</span>
-      </div>
-      <div class="gate-row">
-        <span id="gateChip" class="status-chip offline">Gate closed</span>
-        <span class="subtle">Opens above <output id="gateValue">-45 dB</output></span>
-        <label class="toggle">
-          <input type="checkbox" id="gateEnabled" checked />
-          <span>Noise gate</span>
-        </label>
-      </div>
-      <span class="ptt-hint">Drag the marker on the meter to set your gate — your mic only goes
-        out while the bar is past it.</span>
-      <div class="local-controls">
-        <button id="mute" disabled>Mute Mic</button>
-        <button id="pushToTalk" disabled>Push to Talk</button>
-      </div>
-      <span class="ptt-hint">Hold to talk, or tap once to latch it on. Headset buttons work too.</span>
-      <div id="deviceSelectors" class="device-selectors">
-        <div class="field-group">
-          <label class="field-label" for="inputDeviceSelect">Input device</label>
-          <select id="inputDeviceSelect"></select>
+      </header>
+
+      <div class="content">
+        <div id="fatalBanner" class="banner hidden"></div>
+
+        <!-- ------------------------------------------------------------ home -->
+        <div class="page active" id="page-home" data-page="home">
+          <section id="idleCard" class="panel">
+            <div class="panel-header">
+              <h2>Not in a room</h2>
+              <span class="subtle">Nothing is live yet.</span>
+            </div>
+            <p class="subtle" style="margin: 0 0 14px;">
+              Pick a room to open your microphone and hear everyone else.
+            </p>
+            <button type="button" class="secondary" data-goto="rooms">Choose a room</button>
+          </section>
+
+          <section class="panel mic-panel">
+            <div class="panel-header">
+              <h2>Your microphone</h2>
+              <span class="subtle">Talk to your room.</span>
+            </div>
+            <div id="micSlotHome"></div>
+          </section>
+
+          <section id="playbackPanel" class="panel hidden" aria-live="polite">
+            <div class="panel-header">
+              <h2>Talk to the building</h2>
+              <span class="subtle">Your mic &rarr; the server's audio output.</span>
+            </div>
+            <div class="house-feed-body">
+              <span id="playbackStatus" class="status-chip offline">Offline</span>
+              <div class="house-feed-actions">
+                <button id="playbackToggle" class="secondary">Start output</button>
+              </div>
+            </div>
+            <p class="subtle house-feed-help">Only one person can hold the output at a time.</p>
+          </section>
+
+          <section id="feedsPanel" class="panel hidden" aria-live="polite">
+            <div class="panel-header">
+              <h2>Listen to the building</h2>
+              <span class="subtle">Live inputs from the sound desk.</span>
+            </div>
+            <div id="feedList" class="feed-list"></div>
+            <p class="subtle" id="feedHelp">Each input is independent — listen to either, or both.</p>
+          </section>
         </div>
-        <div class="field-group" id="outputSelectorGroup">
-          <label class="field-label" for="outputDeviceSelect">Output device</label>
-          <select id="outputDeviceSelect"></select>
+
+        <!-- ----------------------------------------------------------- rooms -->
+        <div class="page" id="page-rooms" data-page="rooms">
+          <section class="panel join-panel">
+            <div class="panel-header">
+              <h2>Pick a room</h2>
+              <span id="selectedRoomLabel" class="subtle">No room selected yet</span>
+            </div>
+            <p class="subtle" id="roomsHelp" style="margin: 0;">
+              You'll connect as soon as you choose one.
+            </p>
+            <div id="rooms" aria-describedby="roomsHelp" aria-label="Available rooms"></div>
+            <div class="session-controls">
+              <button id="leave" class="secondary" disabled>Leave room</button>
+            </div>
+          </section>
         </div>
-        <span id="outputSupportNote" class="subtle hidden">Choosing an output device isn't supported in this browser.</span>
-      </div>
-    </section>
 
-    <section id="feedsPanel" class="panel hidden" aria-live="polite">
-      <div class="panel-header">
-        <h2>Room Feeds</h2>
-        <span class="subtle">Live inputs from the sound desk.</span>
-      </div>
-      <div id="feedList" class="feed-list"></div>
-      <p class="subtle" id="feedHelp">Each input is independent — listen to either, or both.</p>
-    </section>
+        <!-- ------------------------------------------------------------- mic -->
+        <div class="page" id="page-mic" data-page="mic">
+          <section class="panel mic-panel">
+            <div class="panel-header">
+              <h2>Microphone</h2>
+              <span class="subtle">Mute, push to talk, and your noise gate.</span>
+            </div>
+            <div id="micSlotMic"></div>
+          </section>
 
-    <section id="playbackPanel" class="panel hidden" aria-live="polite">
-      <div class="panel-header">
-        <h2>Talk to the Building</h2>
-        <span class="subtle">Send your microphone to the server's audio output (admin only).</span>
-      </div>
-      <div class="house-feed-body">
-        <span id="playbackStatus" class="status-chip offline">Offline</span>
-        <div class="house-feed-actions">
-          <button id="playbackToggle" class="secondary">Start output</button>
+          <section class="panel mic-panel">
+            <div class="panel-header">
+              <h2>Noise gate</h2>
+              <span id="gateChip" class="status-chip offline">Gate closed</span>
+            </div>
+            <div class="mic-meter-row">
+              <div id="micMeter" class="meter gate-meter" role="slider" tabindex="0"
+                   aria-label="Noise gate threshold" aria-valuemin="-70" aria-valuemax="0"
+                   aria-valuenow="-45" aria-valuetext="-45 decibels">
+                <div id="micMeterFill" class="meter-fill"></div>
+                <div id="gateHandle" class="gate-handle"></div>
+              </div>
+            </div>
+            <div class="gate-row">
+              <span class="subtle">Opens above <output id="gateValue">-45 dB</output></span>
+              <label class="toggle">
+                <input type="checkbox" id="gateEnabled" checked />
+                <span>Noise gate</span>
+              </label>
+            </div>
+            <span class="ptt-hint">Drag the marker on the meter to set your gate — your mic only
+              goes out while the bar is past it.</span>
+          </section>
+
+          <section class="panel mic-panel">
+            <div class="panel-header">
+              <h2>This device</h2>
+              <span class="subtle">Which mic and speakers this browser uses.</span>
+            </div>
+            <div id="deviceSelectors" class="device-selectors">
+              <div class="field-group">
+                <label class="field-label" for="inputDeviceSelect">Input device</label>
+                <select id="inputDeviceSelect"></select>
+              </div>
+              <div class="field-group" id="outputSelectorGroup">
+                <label class="field-label" for="outputDeviceSelect">Output device</label>
+                <select id="outputDeviceSelect"></select>
+              </div>
+              <span id="outputSupportNote" class="subtle hidden">Choosing an output device isn't supported in this browser.</span>
+            </div>
+            <p class="subtle" id="deviceSelectorsNote" style="margin: 0;">
+              Device selection appears here once you're in a room.
+            </p>
+          </section>
+        </div>
+
+        <!-- ---------------------------------------------------- participants -->
+        <div class="page" id="page-participants" data-page="participants">
+          <section id="remotes" class="panel participants-panel hidden">
+            <div class="panel-header">
+              <h2>Participants</h2>
+              <span class="subtle">Everyone else in your room appears here.</span>
+            </div>
+            <div id="remoteList" class="peer-list" role="list"></div>
+          </section>
+          <section id="participantsIdle" class="panel">
+            <div class="panel-header">
+              <h2>Participants</h2>
+            </div>
+            <p class="subtle" style="margin: 0;">Join a room to see who else is on.</p>
+          </section>
+        </div>
+
+        <!-- ---------------------------------------------------- server audio -->
+        <div class="page" id="page-server" data-page="server">
+          <section id="serverAudioPanel" class="panel hidden" aria-live="polite">
+            <div class="panel-header">
+              <h2>Server audio interface</h2>
+              <span class="subtle">Which sound card the server itself uses.</span>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="serverInputSelect">Server input (feeds the rooms)</label>
+              <select id="serverInputSelect"></select>
+              <span id="serverInputNote" class="subtle hidden"></span>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="serverOutputSelect">Server output (talk to the building)</label>
+              <select id="serverOutputSelect"></select>
+              <span id="serverOutputNote" class="subtle hidden"></span>
+            </div>
+            <div class="house-feed-body">
+              <button id="serverAudioApply" class="secondary">Apply</button>
+              <button id="serverAudioRefresh" class="secondary">Rescan devices</button>
+              <span id="serverAudioStatus" class="subtle" role="status"></span>
+            </div>
+            <p class="subtle house-feed-help">Changing the input restarts the capture without
+              disconnecting anyone. Changing the output stops any stream currently going to the
+              building.</p>
+          </section>
         </div>
       </div>
-      <p class="subtle house-feed-help">Only one person can hold the output at a time.</p>
-    </section>
-
-    <section id="serverAudioPanel" class="panel hidden" aria-live="polite">
-      <div class="panel-header">
-        <h2>Server Audio Interface</h2>
-        <span class="subtle">Which sound card the server itself uses (admin only).</span>
-      </div>
-      <div class="field-group">
-        <label class="field-label" for="serverInputSelect">Server input (feeds the rooms)</label>
-        <select id="serverInputSelect"></select>
-        <span id="serverInputNote" class="subtle hidden"></span>
-      </div>
-      <div class="field-group">
-        <label class="field-label" for="serverOutputSelect">Server output (talk to the building)</label>
-        <select id="serverOutputSelect"></select>
-        <span id="serverOutputNote" class="subtle hidden"></span>
-      </div>
-      <div class="house-feed-body">
-        <button id="serverAudioApply" class="secondary">Apply</button>
-        <button id="serverAudioRefresh" class="secondary">Rescan devices</button>
-        <span id="serverAudioStatus" class="subtle" role="status"></span>
-      </div>
-      <p class="subtle house-feed-help">Changing the input restarts the capture without
-        disconnecting anyone. Changing the output stops any stream currently going to the
-        building.</p>
-    </section>
-
-    <section id="remotes" class="panel participants-panel hidden">
-      <div class="panel-header">
-        <h2>Participants</h2>
-        <span class="subtle">Everyone else in your room appears here.</span>
-      </div>
-      <div id="remoteList" class="peer-list" role="list"></div>
-    </section>
+    </div>
   </div>
 
-  <div id="roomModal" class="modal-backdrop" role="dialog" aria-modal="true"
-       aria-hidden="true" aria-labelledby="roomModalTitle">
-    <div class="panel modal-panel">
-      <div class="modal-header">
-        <h2 id="roomModalTitle">Pick a room</h2>
-        <button id="closeRoomModal" type="button" class="secondary">Close</button>
-      </div>
-      <p class="subtle" id="roomModalDescription">You'll connect immediately after selecting.</p>
-      <div id="rooms" aria-describedby="roomModalDescription" aria-label="Available rooms"></div>
+  <!--
+    The mute / push-to-talk block lives in exactly one place in the DOM and is
+    moved between #micSlotHome and #micSlotMic as pages change. Two copies would
+    mean two sets of listeners and two chips to keep in sync with one mic.
+  -->
+  <div id="micModule" hidden>
+    <div class="mic-status">
+      <span id="micStatus" class="status-chip offline">Disconnected</span>
+      <span id="heardChip" class="status-chip offline">Not heard</span>
     </div>
+    <div class="mic-actions">
+      <button id="mute" disabled>Mute Mic</button>
+      <button id="pushToTalk" disabled>Push to Talk</button>
+    </div>
+    <span class="ptt-hint">Hold to talk, or tap once to latch it on. Headset buttons work too.</span>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -903,7 +1109,6 @@
 
     let preferredInputDeviceId = '';
     let preferredOutputDeviceId = '';
-    let lastFocusedBeforeModal = null;
     let deviceRefreshPromise = null;
 
     const canSelectOutputDevice =
@@ -912,7 +1117,82 @@
     const isDesktopClient =
       !/Android|webOS|iPhone|iPad|iPod|BlackBerry|Windows Phone/i.test(navigator.userAgent || '');
 
-    el('displayName').value = displayName;
+    el('displayName').textContent = displayName;
+
+    // ------------------------------------------------------------- navigation
+
+    // Everything except the two things you touch while a service is running —
+    // your mic and the streams to and from the building — lives behind the side
+    // menu, so the home page stays a page you can use without reading it.
+
+    const PAGES = {
+      home: { title: 'Home', micSlot: 'micSlotHome' },
+      rooms: { title: 'Room' },
+      mic: { title: 'Microphone & gate', micSlot: 'micSlotMic' },
+      participants: { title: 'Participants' },
+      server: { title: 'Server audio', admin: true },
+    };
+
+    const sidebar = el('sidebar');
+    const scrim = el('scrim');
+    const menuToggle = el('menuToggle');
+    const micModule = el('micModule');
+    const navItems = [...document.querySelectorAll('.nav-item')];
+    let currentPage = 'home';
+
+    // A drawer on a phone, a fixed column on a desk. The media query owns the
+    // presentation; this only tracks the open/closed state.
+    function setNavOpen(open) {
+      document.body.classList.toggle('nav-open', open);
+      menuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    function showPage(name) {
+      const page = PAGES[name] ? name : 'home';
+      currentPage = page;
+
+      for (const element of document.querySelectorAll('.page')) {
+        element.classList.toggle('active', element.dataset.page === page);
+      }
+      for (const item of navItems) {
+        item.classList.toggle('active', item.dataset.page === page);
+      }
+
+      el('pageTitle').textContent = PAGES[page].title;
+
+      // The mic controls are one node, relocated rather than duplicated.
+      const slot = PAGES[page].micSlot;
+      if (slot) {
+        el(slot).appendChild(micModule);
+        micModule.hidden = false;
+      }
+
+      setNavOpen(false);
+      el('sidebar').querySelector('.nav-item.active')?.blur();
+      window.scrollTo({ top: 0 });
+    }
+
+    for (const item of navItems) {
+      item.addEventListener('click', () => showPage(item.dataset.page));
+    }
+    for (const link of document.querySelectorAll('[data-goto]')) {
+      link.addEventListener('click', () => showPage(link.dataset.goto));
+    }
+
+    menuToggle.addEventListener('click', () =>
+      setNavOpen(!document.body.classList.contains('nav-open')));
+    scrim.addEventListener('click', () => setNavOpen(false));
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') setNavOpen(false);
+    });
+
+    if (isAdmin) {
+      for (const item of document.querySelectorAll('.admin-only')) {
+        item.classList.remove('hidden');
+      }
+    }
+
+    showPage('home');
 
     // ------------------------------------------------------------- wake lock
 
@@ -947,8 +1227,6 @@
     // ------------------------------------------------------------------ rooms
 
     const roomsDiv = el('rooms');
-    const roomModal = el('roomModal');
-    const openRoomModalBtn = el('openRoomModal');
     const selectedRoomLabel = el('selectedRoomLabel');
 
     function roomLabel(roomId) {
@@ -970,46 +1248,15 @@
       button.textContent = `Join ${roomLabel(room)}`;
       button.onclick = () => {
         selectedRoomLabel.textContent = `Selected: ${roomLabel(room)}`;
-        closeRoomModal();
         joinRoom(room);
+        // Joining is the point of this page; drop the user back on the controls.
+        showPage('home');
       };
       roomsDiv.appendChild(button);
     }
 
-    const isRoomModalOpen = () => roomModal.classList.contains('active');
-
-    function openRoomModal() {
-      if (isRoomModalOpen()) return;
-      lastFocusedBeforeModal = document.activeElement;
-      roomModal.classList.add('active');
-      roomModal.setAttribute('aria-hidden', 'false');
-      document.body.classList.add('modal-open');
-      setTimeout(() => roomsDiv.querySelector('button:not(:disabled)')?.focus(), 0);
-    }
-
-    function closeRoomModal() {
-      if (!isRoomModalOpen()) return;
-      roomModal.classList.remove('active');
-      roomModal.setAttribute('aria-hidden', 'true');
-      document.body.classList.remove('modal-open');
-      lastFocusedBeforeModal?.focus?.();
-    }
-
-    openRoomModalBtn.addEventListener('click', () => {
-      if (!openRoomModalBtn.disabled) openRoomModal();
-    });
-    el('closeRoomModal').addEventListener('click', closeRoomModal);
-    roomModal.addEventListener('click', (ev) => {
-      if (ev.target === roomModal) closeRoomModal();
-    });
-    document.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape' && isRoomModalOpen()) closeRoomModal();
-    });
-
     function setRoomButtonsDisabled(disabled) {
       for (const button of roomsDiv.querySelectorAll('button')) button.disabled = disabled;
-      openRoomModalBtn.disabled = disabled;
-      if (disabled) closeRoomModal();
     }
 
     // ------------------------------------------------------------ audio output
@@ -1459,6 +1706,12 @@
     const feedList = el('feedList');
 
     function renderFeeds(feeds) {
+      // The stream coming back from the building is an admin control, same as
+      // the one going out to it.
+      if (!isAdmin) {
+        feedsPanel.classList.add('hidden');
+        return;
+      }
       feedsPanel.classList.toggle('hidden', !socket || feeds.length === 0);
       const seen = new Set();
 
@@ -1905,8 +2158,17 @@
 
     function updateDeviceSelectorsVisibility() {
       const show = shouldShowDeviceSelectors();
+      const note = el('deviceSelectorsNote');
       deviceSelectors.classList.toggle('active', show);
-      if (!show) return;
+      note.classList.toggle('hidden', show);
+      if (!show) {
+        note.textContent = !isDesktopClient
+          ? 'Pick the microphone and speaker in your phone or tablet settings.'
+          : !isAdmin
+            ? 'Your browser uses the system default microphone and speaker.'
+            : "Device selection appears here once you're in a room.";
+        return;
+      }
       el('outputSelectorGroup').classList.toggle('hidden', !canSelectOutputDevice);
       el('outputSupportNote').classList.toggle('hidden', canSelectOutputDevice);
       refreshDeviceOptions();
@@ -2071,6 +2333,13 @@
 
     const remoteList = el('remoteList');
     const participantsPanel = document.querySelector('.participants-panel');
+
+    /** Swaps the "nothing is live" placeholders for the real panels. */
+    function setConnectedUi(connected) {
+      participantsPanel.classList.toggle('hidden', !connected);
+      el('participantsIdle').classList.toggle('hidden', connected);
+      el('idleCard').classList.toggle('hidden', connected);
+    }
 
     const peerDisplayName = (peerId, name) =>
       (typeof name === 'string' && name.trim()) ? name.trim() : `Guest ${String(peerId).slice(-4)}`;
@@ -2476,7 +2745,7 @@
         if (row.wantsAudio && !row.listening) startFeed(feedId).catch(console.error);
       }
 
-      participantsPanel.classList.remove('hidden');
+      setConnectedUi(true);
       updateDeviceSelectorsVisibility();
       updatePlaybackControls();
       acquireWakeLock();
@@ -2573,10 +2842,10 @@
       pushToTalkActive = false;
       pushToTalkLatched = false;
 
-      participantsPanel.classList.add('hidden');
+      setConnectedUi(false);
       feedsPanel.classList.add('hidden');
       playbackPanel.classList.add('hidden');
-      deviceSelectors.classList.remove('active');
+      updateDeviceSelectorsVisibility();
 
       enableMicControls(false);
       muteBtn.textContent = 'Mute Mic';
@@ -2591,6 +2860,8 @@
       selectedRoomLabel.textContent = 'No room selected yet';
       log('Left the room');
     }
+
+    updateDeviceSelectorsVisibility();
 
     el('leave').addEventListener('click', () => leaveRoom());
 

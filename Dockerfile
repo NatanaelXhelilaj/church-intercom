@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # ---------------------------------------------------------------- build stage
-# mediasoup compiles a C++ worker binary and bcrypt has a native addon, so the
-# toolchain is needed here. None of it ships in the runtime image.
+# mediasoup compiles a C++ worker binary, so the toolchain is needed here. None
+# of it ships in the runtime image.
 FROM node:22-bookworm-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

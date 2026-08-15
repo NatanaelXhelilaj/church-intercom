@@ -80,7 +80,7 @@ interface, a USB re-enumeration — reconnects without disturbing listeners.
 | `server.js` | HTTP/S, routes, Socket.IO handlers, lifecycle |
 | `config.js` | Env parsing and validation; refuses to boot on bad config |
 | `audio.js` | `AudioCapture` and `AudioPlayback` — ffmpeg supervision |
-| `auth.js` | bcrypt, session middleware, first-admin bootstrap |
+| `auth.js` | Passwordless sign-in, session middleware, first-admin bootstrap |
 | `db.js` | Pool, startup retry, health probe |
 | `healthcheck.js` | Container healthcheck; exits non-zero when degraded |
 | `public/index.html` | The whole client |
@@ -99,10 +99,13 @@ npm run build:vendor     # required once — see below
 npm run dev              # NODE_ENV=development BYPASS_AUTH=true
 ```
 
-`npm run dev` sets `BYPASS_AUTH=true`, which accepts any username with no
-password and grants admin to any name containing "admin". `config.js` **refuses
-to start** with that flag under `NODE_ENV=production`, so it cannot reach a
-deployment.
+`npm run dev` sets `BYPASS_AUTH=true`, which needs no database and accepts any
+username at all — including one no account exists for. With no `is_admin`
+column to consult it treats every account as admin-capable, so ticking "Sign in
+as administrator" works for anyone. `config.js` **refuses to start** with that
+flag under `NODE_ENV=production`.
+
+**This is also how the appliance runs.** See [Security](#security).
 
 Then open <http://localhost:3000>. Microphone access works on `localhost`
 without HTTPS; on any other address it does not.
@@ -136,7 +139,7 @@ with the internet unplugged.
 | `RTP_PORT_MIN` / `RTP_PORT_MAX` | `40000` / `40199` | Must be open, UDP |
 | `ROOMS` | eight defaults | Comma-separated; the client reads this from the server |
 | `SESSION_SECRET` | — | Required; boot fails on the placeholder value |
-| `BOOTSTRAP_ADMIN_PASSWORD` | — | Creates the first admin, first boot only |
+| `BOOTSTRAP_ADMIN_USERNAME` | `admin` | Creates the first admin, first boot only |
 | `AUDIO_CAPTURE_ENABLED` | `false` | |
 | `AUDIO_CAPTURE_DEVICE` | `hw:1,0` | ALSA device — find it with `arecord -l` |
 | `AUDIO_CAPTURE_CHANNELS` | `2` | One independent mono feed per channel |
@@ -185,8 +188,34 @@ producing into, or consuming from, a room it never joined.
 
 ## Security
 
-- bcrypt password hashing; login compares against a dummy hash for unknown
-  users so response timing does not reveal which accounts exist
+**There is no authentication, by design.** The appliance runs with
+`BYPASS_AUTH=true` and no database: sign-in takes any username, and ticking
+"Sign in as administrator" grants admin to whoever ticks it. The single control
+that matters is the **network** — one machine on the church LAN, no route in
+from outside, nothing published to the internet. Everything below is what
+remains rather than what protects you.
+
+Read that as: anyone who can reach the box can join any room, hear everything,
+kick people out, and take over the building's speakers. That is an accepted
+trade for volunteers who need to be on air in seconds, not a gap to be closed
+with a password. **Do not expose this to the internet, to guest Wi-Fi, or to
+any network you do not control.** If that ever changes, the auth model has to
+change with it.
+
+The account roster below only applies to an install that is wired to a
+database, which the appliance is not:
+
+- Sign-in is passwordless: the username is the credential, and it must match an
+  active account. Revoke someone with `is_active = FALSE`.
+- Admin is `is_admin` on the account AND the "Sign in as administrator"
+  checkbox — the column is the capability, the checkbox the intent. Ticking the
+  box without the column grants nothing. Because intent can only subtract, an
+  admin can deliberately take an ordinary session, which is useful when a
+  volunteer borrows the tablet.
+- `is_admin` is re-read from the database on every admin request, so revoking
+  it bites immediately rather than when the 30-day session expires.
+
+Still true on every install:
 - Session cookies `httpOnly`, `sameSite=lax`, and `secure` whenever HTTPS is on
 - Session id regenerated on login (fixation)
 - Login rate limited per address

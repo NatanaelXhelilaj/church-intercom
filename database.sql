@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   username VARCHAR(50) UNIQUE NOT NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
+  -- Vestigial: sign-in is passwordless, so this only ever holds the sentinel
+  -- written by registerUser(). Kept NOT NULL so existing installs need no
+  -- migration. See PASSWORDLESS_SENTINEL in auth.js.
   password_hash VARCHAR(255) NOT NULL,
   display_name VARCHAR(60) NOT NULL,
   is_admin BOOLEAN DEFAULT FALSE,
@@ -57,8 +60,8 @@ CREATE TRIGGER update_users_updated_at
 -- install shipped with the same known credentials.
 --
 -- The first administrator is now created by the application on first boot from
--- BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD, and only when no admin
--- account exists yet. See bootstrapAdminUser() in auth.js.
+-- BOOTSTRAP_ADMIN_USERNAME, and only when no admin account exists yet. See
+-- bootstrapAdminUser() in auth.js.
 
 -- Grant appropriate permissions (adjust as needed for your setup)
 -- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO your_app_user;
